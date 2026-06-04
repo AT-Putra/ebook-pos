@@ -8,7 +8,7 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | F6 done — SLC polish next |
+| Overall status | ALL SLICES DONE — ready for deployment |
 | Repo working state | green (build passes, 73 tests pass) |
 
 ## How to run (fill in once scaffolded)
@@ -27,13 +27,13 @@
 - [x] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
 - [x] F5 — Delivery retry / backoff (cron-style worker)
 - [x] F6 — Admin: list orders + manual resend (with corrected number)
-- [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
+- [x] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- SLC polish pass (README, error pages, root redirect)
+- (nothing — all slices complete)
 
-## Next up (after current)
-- (all slices complete — deploy runbook in PRD §18)
+## Next up
+- Deploy: follow PRD §18 runbook; upload e-book file; set Midtrans webhook URL; run sandbox E2E test.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -72,6 +72,9 @@
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — SLC polish complete: root page redirects to product slug, custom 404 page (Indonesian),
+  thank-you page shows order code + payment status from Midtrans callback params, README with local
+  setup + Docker + cron + admin API docs. 73 tests green. Committed as `chore(polish): SLC pass`.
 - 2026-06-04 — F6 complete: `src/app/api/admin/orders/route.ts` (GET with status filter, returns
   orders + delivery state), `src/app/api/admin/deliveries/[id]/resend/route.ts` (POST, optional
   corrected whatsapp, resets delivery to PENDING, calls attemptDelivery). Both admin-token-protected.

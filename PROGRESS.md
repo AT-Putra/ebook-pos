@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | F4+F5 done — F6 next |
-| Repo working state | green (build passes, 65 tests pass) |
+| Overall status | F6 done — SLC polish next |
+| Repo working state | green (build passes, 73 tests pass) |
 
 ## How to run (fill in once scaffolded)
 - Install: `npm install`
@@ -26,14 +26,14 @@
 - [x] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
 - [x] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
 - [x] F5 — Delivery retry / backoff (cron-style worker)
-- [ ] F6 — Admin: list orders + manual resend (with corrected number)
+- [x] F6 — Admin: list orders + manual resend (with corrected number)
 - [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- F6 — Admin: list orders + manual resend
+- SLC polish pass (README, error pages, root redirect)
 
 ## Next up (after current)
-1. SLC polish (thank-you page, friendly WA message, error states).
+- (all slices complete — deploy runbook in PRD §18)
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -72,6 +72,10 @@
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — F6 complete: `src/app/api/admin/orders/route.ts` (GET with status filter, returns
+  orders + delivery state), `src/app/api/admin/deliveries/[id]/resend/route.ts` (POST, optional
+  corrected whatsapp, resets delivery to PENDING, calls attemptDelivery). Both admin-token-protected.
+  `__tests__/auth.test.ts`: 8 tests for isAdmin/isCron. 73 tests green. Committed as `feat(F6)`.
 - 2026-06-04 — F4+F5 complete: `src/lib/files.ts` (readEbookAsBase64 with path-traversal guard),
   `src/lib/waha.ts` (sendFile base64 over HTTPS, enforces https:// invariant at call time),
   `src/lib/delivery.ts` (attemptDelivery exactly-once + BACKOFF_MINUTES schedule,

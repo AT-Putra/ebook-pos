@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | F2 done — F3 next |
-| Repo working state | green (build passes, 51 tests pass) |
+| Overall status | F3 done — F4 next |
+| Repo working state | green (build passes, 59 tests pass) |
 
 ## How to run (fill in once scaffolded)
 - Install: `npm install`
@@ -23,19 +23,19 @@
 - [x] F7 — Products + seed
 - [x] F1 — Checkout intake (form, tracking ID capture, validation)
 - [x] F2 — Order creation + Midtrans Snap transaction
-- [ ] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
+- [x] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
 - [ ] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
 - [ ] F5 — Delivery retry / backoff (cron-style worker)
 - [ ] F6 — Admin: list orders + manual resend (with corrected number)
 - [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
+- F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
 
 ## Next up (after current)
-1. F4 WAHA base64 delivery.
-2. F5 retry/backoff.
-3. F6 admin + resend.
+1. F5 retry/backoff.
+2. F6 admin + resend.
+3. SLC polish.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -74,6 +74,10 @@
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — F3 complete: `src/app/api/webhooks/midtrans/route.ts` — SHA512 signature verify
+  (rejects 403 on mismatch), always persists PaymentEvent audit log, idempotent forward-only status
+  via canTransition, creates Delivery row on PAID transition (F4 will add send logic). `src/lib/auth.ts`
+  (isAdmin + isCron guards). 59 tests green. Committed as `feat(F3)`.
 - 2026-06-04 — F2 complete: `src/lib/orders.ts` (generateOrderCode, canTransition forward-only),
   `src/lib/midtrans.ts` (createSnapTransaction, verifySignature SHA512, mapMidtransStatus),
   `src/app/api/checkout/route.ts` completed (upsert Customer, create Order, call Snap, mark FAILED

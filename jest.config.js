@@ -19,6 +19,7 @@ const config = {
   cacheDirectory: './jest-cache',
   testPathIgnorePatterns: ['/node_modules/', '/.next/'],
   watchPathIgnorePatterns: ['/node_modules/', '/.next/'],
+  modulePathIgnorePatterns: ['/.next/'],
 };
 
 module.exports = config;

@@ -17,6 +17,8 @@ const config = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   cacheDirectory: './jest-cache',
+  testPathIgnorePatterns: ['/node_modules/', '/.next/'],
+  watchPathIgnorePatterns: ['/node_modules/', '/.next/'],
 };
 
 module.exports = config;

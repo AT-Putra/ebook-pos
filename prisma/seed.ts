@@ -1,23 +1,25 @@
 import { PrismaClient } from '@prisma/client';
+import { SEED_PRODUCTS } from './seedData';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  // Placeholder — real product seed is added in the F7 slice.
-  // Example shape:
-  // await prisma.product.upsert({
-  //   where: { slug: 'my-ebook' },
-  //   update: {},
-  //   create: {
-  //     slug: 'my-ebook',
-  //     name: 'My E-book',
-  //     priceIdr: 100000,
-  //     filePath: 'my-ebook.pdf',
-  //     fileName: 'my-ebook.pdf',
-  //     mimeType: 'application/pdf',
-  //   },
-  // });
-  console.log('Seed: no-op in scaffold slice (real seed added in F7).');
+  for (const product of SEED_PRODUCTS) {
+    await prisma.product.upsert({
+      where: { slug: product.slug },
+      update: {
+        name: product.name,
+        description: product.description,
+        priceIdr: product.priceIdr,
+        filePath: product.filePath,
+        fileName: product.fileName,
+        mimeType: product.mimeType,
+        isActive: product.isActive,
+      },
+      create: product,
+    });
+    console.log(`Seeded product: ${product.slug}`);
+  }
 }
 
 main()

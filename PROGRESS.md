@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | Scaffold done — F7 next |
-| Repo working state | green (build passes, 5 tests pass) |
+| Overall status | F7 done — F1 next |
+| Repo working state | green (build passes, 11 tests pass) |
 
 ## How to run (fill in once scaffolded)
 - Install: `npm install`
@@ -20,7 +20,7 @@
 
 ## Feature checklist (tick when acceptance criteria in PRD §5 pass AND are verified)
 - [x] Scaffold: Next.js + TS + Prisma + zod env validation + Dockerfile/compose/Caddyfile
-- [ ] F7 — Products + seed
+- [x] F7 — Products + seed
 - [ ] F1 — Checkout intake (form, tracking ID capture, validation)
 - [ ] F2 — Order creation + Midtrans Snap transaction
 - [ ] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
@@ -30,12 +30,12 @@
 - [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- F7 — Products + seed (`prisma/seed.ts` + migration)
+- F1 — Checkout intake (form + `POST /api/checkout` validation)
 
 ## Next up (after current)
-1. F7 products/seed — needs open question resolved (see below).
-2. F1 checkout form.
-3. F2 order + Midtrans Snap.
+1. F2 order + Midtrans Snap.
+2. F3 webhook.
+3. F4 WAHA delivery.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -61,8 +61,7 @@
 - (none)
 
 ## Open questions (block the noted slice until answered — mirror of PRD §16)
-- [ ] **F7 BLOCKS:** Single product or catalog for v1? Schema supports many; we need the product
-      slug, name, price, filePath, and fileName to seed the first product. → **ASK OWNER before F7.**
+- [x] Single product or catalog? → **Single product for v1** (slug: `lose-weight-challenge-1st-edition`; price: IDR 75,000). Resolved 2026-06-04.
 - [ ] Tracking-ID semantics: affiliate vs campaign? (reporting only — does not block any slice)
 - [ ] Email fallback if WhatsApp delivery permanently fails? (affects F4/F5; tied to file-size limit)
 - [ ] PII retention period (UU PDP).
@@ -75,3 +74,7 @@
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — F7 complete: initial migration SQL generated (`prisma/migrations/20260604000000_init`),
+  `prisma/seedData.ts` exports typed SEED_PRODUCTS (importable in tests), `prisma/seed.ts` upserts
+  product on `npx prisma db seed`. 11 tests green. Committed as `feat(F7)`.
+  Product: slug=`lose-weight-challenge-1st-edition`, price=IDR 75,000.

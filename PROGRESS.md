@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | F7 done — F1 next |
-| Repo working state | green (build passes, 11 tests pass) |
+| Overall status | F1 done — F2 next |
+| Repo working state | green (build passes, 30 tests pass) |
 
 ## How to run (fill in once scaffolded)
 - Install: `npm install`
@@ -21,7 +21,7 @@
 ## Feature checklist (tick when acceptance criteria in PRD §5 pass AND are verified)
 - [x] Scaffold: Next.js + TS + Prisma + zod env validation + Dockerfile/compose/Caddyfile
 - [x] F7 — Products + seed
-- [ ] F1 — Checkout intake (form, tracking ID capture, validation)
+- [x] F1 — Checkout intake (form, tracking ID capture, validation)
 - [ ] F2 — Order creation + Midtrans Snap transaction
 - [ ] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
 - [ ] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
@@ -30,12 +30,12 @@
 - [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- F1 — Checkout intake (form + `POST /api/checkout` validation)
+- F2 — Order creation + Midtrans Snap transaction
 
 ## Next up (after current)
-1. F2 order + Midtrans Snap.
-2. F3 webhook.
-3. F4 WAHA delivery.
+1. F3 webhook (signature verify, idempotency, status map).
+2. F4 WAHA base64 delivery.
+3. F5 retry/backoff.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -74,6 +74,11 @@
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — F1 complete: `src/app/[slug]/page.tsx` (server, force-dynamic, 404 on inactive),
+  `src/components/checkout-form.tsx` (client, shows field errors from 422), `src/app/api/checkout/route.ts`
+  (validates input, returns 422 with field errors, stubs 501 for F2), `src/app/thank-you/page.tsx`,
+  `src/lib/phone.ts` (Indonesian mobile normalization, rejects landlines), `src/lib/validation.ts`
+  (zod checkoutSchema with phone transform). 30 tests green. Phone fix: reject non-628 prefix.
 - 2026-06-04 — F7 complete: initial migration SQL generated (`prisma/migrations/20260604000000_init`),
   `prisma/seedData.ts` exports typed SEED_PRODUCTS (importable in tests), `prisma/seed.ts` upserts
   product on `npx prisma db seed`. 11 tests green. Committed as `feat(F7)`.

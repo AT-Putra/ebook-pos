@@ -1,0 +1,111 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  priceIdr    Int // IDR, no decimals (e.g. 100000)
+  filePath    String // path to the e-book RELATIVE to EBOOK_FILES_DIR, e.g. "my-ebook.pdf"
+  fileName    String // filename shown to the buyer, e.g. "my-ebook.pdf"
+  mimeType    String   @default("application/pdf")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  orders      Order[]
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  whatsapp  String // normalized digits, no '+', e.g. "628123456789"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@unique([email, whatsapp])
+  @@index([whatsapp])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
+model Order {
+  id                    String      @id @default(cuid())
+  orderCode             String      @unique // == Midtrans order_id
+  customerId            String
+  productId             String
+  amountIdr             Int
+  currency              String      @default("IDR")
+  status                OrderStatus @default(PENDING)
+  trackingId            String? // attribution / referral id (nullable)
+  snapToken             String?
+  snapRedirectUrl       String?
+  midtransTransactionId String?
+  paymentType           String?
+  paidAt                DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  customer              Customer    @relation(fields: [customerId], references: [id])
+  product               Product     @relation(fields: [productId], references: [id])
+  delivery              Delivery?
+  events                PaymentEvent[]
+
+  @@index([status])
+  @@index([trackingId])
+}
+
+model PaymentEvent {
+  // immutable audit log of every notification
+  id                String   @id @default(cuid())
+  orderId           String
+  transactionStatus String
+  fraudStatus       String?
+  statusCode        String?
+  signatureValid    Boolean
+  rawPayload        Json
+  createdAt         DateTime @default(now())
+  order             Order    @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+enum DeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+model Delivery {
+  id            String         @id @default(cuid())
+  orderId       String         @unique // one delivery per order => no double-send
+  channel       String         @default("whatsapp")
+  status        DeliveryStatus @default(PENDING)
+  attempts      Int            @default(0)
+  maxAttempts   Int            @default(5)
+  nextRetryAt   DateTime?
+  wahaMessageId String?
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  order         Order          @relation(fields: [orderId], references: [id])
+
+  @@index([status, nextRetryAt])
+}

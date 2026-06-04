@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | F3 done — F4 next |
-| Repo working state | green (build passes, 59 tests pass) |
+| Overall status | F4+F5 done — F6 next |
+| Repo working state | green (build passes, 65 tests pass) |
 
 ## How to run (fill in once scaffolded)
 - Install: `npm install`
@@ -24,18 +24,16 @@
 - [x] F1 — Checkout intake (form, tracking ID capture, validation)
 - [x] F2 — Order creation + Midtrans Snap transaction
 - [x] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
-- [ ] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
-- [ ] F5 — Delivery retry / backoff (cron-style worker)
+- [x] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
+- [x] F5 — Delivery retry / backoff (cron-style worker)
 - [ ] F6 — Admin: list orders + manual resend (with corrected number)
 - [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
+- F6 — Admin: list orders + manual resend
 
 ## Next up (after current)
-1. F5 retry/backoff.
-2. F6 admin + resend.
-3. SLC polish.
+1. SLC polish (thank-you page, friendly WA message, error states).
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -74,6 +72,11 @@
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — F4+F5 complete: `src/lib/files.ts` (readEbookAsBase64 with path-traversal guard),
+  `src/lib/waha.ts` (sendFile base64 over HTTPS, enforces https:// invariant at call time),
+  `src/lib/delivery.ts` (attemptDelivery exactly-once + BACKOFF_MINUTES schedule,
+  processDueDeliveries cron worker), `src/app/api/cron/process-deliveries/route.ts` (cron-protected
+  GET), webhook updated to fire-and-forget attemptDelivery on PAID. 65 tests green. Committed as `feat(F4+F5)`.
 - 2026-06-04 — F3 complete: `src/app/api/webhooks/midtrans/route.ts` — SHA512 signature verify
   (rejects 403 on mismatch), always persists PaymentEvent audit log, idempotent forward-only status
   via canTransition, creates Delivery row on PAID transition (F4 will add send logic). `src/lib/auth.ts`

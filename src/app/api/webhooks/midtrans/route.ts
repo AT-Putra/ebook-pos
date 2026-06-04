@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifySignature, mapMidtransStatus } from '@/lib/midtrans';
 import { advanceOrderStatus } from '@/lib/orders';
+import { attemptDelivery } from '@/lib/delivery';
 import { OrderStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
@@ -63,16 +64,19 @@ export async function POST(req: NextRequest) {
 
     const updated = await advanceOrderStatus(order.id, nextStatus, extra);
 
-    // 5. If order just became PAID, trigger delivery (fire-and-forget; webhook acks fast).
+    // 5. If order just became PAID, create Delivery row + fire-and-forget send.
+    // The webhook acks 200 immediately; the send happens asynchronously.
+    // Exactly-once guard lives inside attemptDelivery (checks for SENT status).
     if (updated && nextStatus === OrderStatus.PAID) {
-      // Import inline to avoid circular dep; delivery.ts is built in F4.
-      // For now, create the Delivery row — F4 will add the send logic.
       const existing = await db.delivery.findUnique({ where: { orderId: order.id } });
-      if (!existing) {
-        await db.delivery.create({
-          data: { orderId: order.id },
-        });
-      }
+      const deliveryId = existing
+        ? existing.id
+        : (await db.delivery.create({ data: { orderId: order.id } })).id;
+
+      // Fire-and-forget — don't await; errors are logged inside attemptDelivery.
+      attemptDelivery(deliveryId).catch(err =>
+        console.error('[webhook] Delivery attempt error:', err),
+      );
     }
   }
 

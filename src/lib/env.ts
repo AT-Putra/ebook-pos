@@ -34,5 +34,18 @@ export function parseEnv(raw: NodeJS.ProcessEnv): Env {
   return result.data;
 }
 
-// Singleton — throws at import time if any required variable is missing or invalid.
-export const env = parseEnv(process.env);
+// Lazy singleton — validates on first property access (not at module load time).
+// This lets Next.js import the module during build without needing env vars set,
+// while still failing fast on the first real request if a variable is missing.
+let _cached: Env | undefined;
+
+function getEnv(): Env {
+  if (!_cached) _cached = parseEnv(process.env);
+  return _cached;
+}
+
+export const env: Env = new Proxy({} as Env, {
+  get(_, prop: PropertyKey): unknown {
+    return getEnv()[prop as keyof Env];
+  },
+});

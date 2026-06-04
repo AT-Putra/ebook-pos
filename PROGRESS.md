@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.6.0 |
 | Last updated | 2026-06-04 |
-| Overall status | F1 done — F2 next |
-| Repo working state | green (build passes, 30 tests pass) |
+| Overall status | F2 done — F3 next |
+| Repo working state | green (build passes, 51 tests pass) |
 
 ## How to run (fill in once scaffolded)
 - Install: `npm install`
@@ -22,7 +22,7 @@
 - [x] Scaffold: Next.js + TS + Prisma + zod env validation + Dockerfile/compose/Caddyfile
 - [x] F7 — Products + seed
 - [x] F1 — Checkout intake (form, tracking ID capture, validation)
-- [ ] F2 — Order creation + Midtrans Snap transaction
+- [x] F2 — Order creation + Midtrans Snap transaction
 - [ ] F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
 - [ ] F4 — WAHA base64 delivery (phone normalization, sendFile, exactly-once)
 - [ ] F5 — Delivery retry / backoff (cron-style worker)
@@ -30,12 +30,12 @@
 - [ ] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
 
 ## In progress
-- F2 — Order creation + Midtrans Snap transaction
+- F3 — Midtrans webhook (signature verify, idempotent forward-only status, PaymentEvent log)
 
 ## Next up (after current)
-1. F3 webhook (signature verify, idempotency, status map).
-2. F4 WAHA base64 delivery.
-3. F5 retry/backoff.
+1. F4 WAHA base64 delivery.
+2. F5 retry/backoff.
+3. F6 admin + resend.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -67,13 +67,19 @@
 - [ ] PII retention period (UU PDP).
 - [ ] 3rd-party WAHA provider: max request body size (caps e-book size for base64), IP allowlist
       support, auth header. (Blocks F4 if a large file exceeds the limit.)
-- [ ] Checkout failure policy: on Midtrans create failure, delete the PENDING order or mark FAILED?
+- [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
 - 2026-06-03 — Project planned; PRD at v0.6.0; CLAUDE.md and PROGRESS.md created. No code yet.
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).
   Build passes. Committed as `feat(scaffold)`.
+- 2026-06-04 — F2 complete: `src/lib/orders.ts` (generateOrderCode, canTransition forward-only),
+  `src/lib/midtrans.ts` (createSnapTransaction, verifySignature SHA512, mapMidtransStatus),
+  `src/app/api/checkout/route.ts` completed (upsert Customer, create Order, call Snap, mark FAILED
+  on Snap error per checkout-failure-policy decision). `env.ts` changed to lazy Proxy so build
+  doesn't fail when vars are absent. 51 tests green. Committed as `feat(F2)`.
+  Decision: checkout failure → mark FAILED (not delete), keeps audit trail.
 - 2026-06-04 — F1 complete: `src/app/[slug]/page.tsx` (server, force-dynamic, 404 on inactive),
   `src/components/checkout-form.tsx` (client, shows field errors from 422), `src/app/api/checkout/route.ts`
   (validates input, returns 422 with field errors, stubs 501 for F2), `src/app/thank-you/page.tsx`,

@@ -32,9 +32,10 @@ done, idempotent, and recoverable.
 - `src/app/[slug]/page.tsx` — checkout page; `src/app/api/checkout/route.ts` — create order + Snap
 - `src/app/api/webhooks/midtrans/route.ts` — payment notification
 - `src/app/api/cron/process-deliveries/route.ts` — retry worker
-- `src/app/api/admin/*` — operator endpoints
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth`
-- `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.ts`
+- `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
+- `src/app/admin/*` — operator dashboard / CMS UI (login + Leads Report); `src/middleware.ts` gates it
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `report` for the dashboard)
+- `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
 1. **Midtrans webhook**: verify `signature_key == SHA512(order_id + status_code + gross_amount + SERVER_KEY)`
@@ -61,7 +62,20 @@ Delivery happens ONLY on PAID.
 ## Build order (vertical slices — see PRD §19.3)
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →
 F3 webhook → F4 WAHA base64 delivery → F5 retry/backoff → F6 admin+resend → SLC polish.
+**Done & deployed (F1–F7 + polish). Next: dashboard (PRD §20):**
+D1 admin auth+session → D2 report metrics API → D3 Leads Report UI.
+(Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 CSV export.)
 Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is updated.
+
+## Dashboard notes (PRD §20)
+- Mockup: `docs/mockups/cms.png`. Indonesian UI. Login-gated `/admin/*`.
+- **Lead** = any checkout submission (`Order`, any status); **Purchase** = `Order.status=PAID`.
+  Metrics come from existing `Order`/`Delivery` — see §20.4 for exact, WIB-bucketed definitions.
+- **Active / Conv.Rate Active / Program** belong to the DEFERRED Challenge module — render per mockup
+  but STUB them (`0` / `—`). Do NOT fabricate data or build the challenge module now.
+- Auth: multi-user username+password, scrypt via `node:crypto`, DB-backed `Session` (HTTP-only cookie).
+  First account via `npm run admin:create`. Never commit a default password. `ADMIN_TOKEN` still works
+  for machine/API callers. Put metric math in pure functions in `lib/report.ts` (unit-tested, no DB).
 
 ## Working rules
 - Read files before editing; never assume prior content.

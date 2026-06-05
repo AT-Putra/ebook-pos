@@ -6,14 +6,16 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.6.0 |
-| Status | Draft — ready for implementation |
+| Version | 0.7.0 |
+| Status | Core flow built & deployed; dashboard (§20) specced, not yet built |
 | Owner | Product owner (you) |
-| Last updated | 2026-06-03 |
+| Last updated | 2026-06-05 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.0** (2026-06-05) — Added **§20 Operator Dashboard / CMS** (multi-user login + Leads Report) per the mockup at `docs/mockups/cms.png`. Resolved dashboard decisions (Lead = any checkout submission; Purchase = PAID order; Active/Program tied to the deferred Challenge module and stubbed for now; multi-user username+password auth). Added `AdminUser` + `Session` to §9, admin UI routes to §10, dashboard slices (D1–D3) to §19.3.
+- **0.6.1** (2026-06-05) — Stack upgrade folded into the spec: **Next.js 16, Prisma 7 (+`@prisma/adapter-pg`), Zod 4, TypeScript 6, Node 22, PostgreSQL 17, ESLint 10.** Prisma 7 moves the datasource `url` out of `schema.prisma` into `prisma.config.js` and requires a driver adapter on `PrismaClient`; `prisma db seed` removed (seed runs as `node prisma/seed.mjs`). §6/§9 updated accordingly.
 - **0.6.0** (2026-06-03) — Added §19 Build &amp; resume protocol (source-of-truth hierarchy, session start/end routines, build order, commit discipline). Companion files: `CLAUDE.md` (auto-loaded project rules for Claude Code) and `PROGRESS.md` (live build state).
 - **0.5.0** (2026-06-03) — **WAHA is a 3rd-party managed service, public HTTPS only (no VPN/private network).** App is back to a single host (Caddy + app + Postgres). `WAHA_BASE_URL` must be `https://`; base64 is the **only** delivery method (`file.url` removed); added provider request-size limit and 3rd-party-processor privacy notes; §18 rewritten for one App host + external WAHA.
 - **0.4.0** (2026-06-03) — **WAHA moved to a separate machine.** App host now runs Caddy + app + Postgres; WAHA runs on its own host reached over a private/encrypted link. Added transport-security requirement (the base64 e-book now crosses the network) and split §18 into App host / WAHA host.
@@ -143,15 +145,16 @@ Acceptance criteria are written as testable statements. `[ ]` = must pass before
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Framework | **Next.js (App Router) + TypeScript** | Landing page + API route handlers in one codebase |
-| Validation | **zod** | Request bodies + env validation |
-| Database | **PostgreSQL** | Managed (Neon/Supabase) or Docker locally |
-| ORM | **Prisma** | Schema in §9 |
+| Framework | **Next.js 16 (App Router) + TypeScript 6** | Landing page + API route handlers in one codebase |
+| Validation | **Zod 4** | Request bodies + env validation |
+| Database | **PostgreSQL 17** | Managed or Docker locally |
+| ORM | **Prisma 7 + `@prisma/adapter-pg`** | Schema in §9. **Prisma 7:** datasource `url` lives in `prisma.config.js` (not `schema.prisma`); `PrismaClient` is constructed with the `PrismaPg` driver adapter; `prisma db seed` is removed (run `node prisma/seed.mjs`). |
 | Payments | **Midtrans Snap** | Server-side transaction creation + webhook |
-| WhatsApp delivery | **WAHA** (`devlikeapro/waha`) | **Separate Docker service**, not on Vercel |
+| WhatsApp delivery | **WAHA** (3rd-party managed service) | Public HTTPS only — see §12.2 / §18 |
 | File storage | **Local private directory on the app server** | E-book files on a mounted volume, outside the web root, never served statically |
-| Background retries | In-process scheduler / system cron → delivery worker | Backoff-driven retries (HTTP cron endpoint optional) |
-| Hosting | **AlmaLinux 10 VPS** (App host) running Docker Compose: Caddy + app + Postgres | Only Caddy (80/443) is public. **WAHA is an external 3rd-party HTTPS service** — see §18 |
+| Background retries | System cron → delivery worker (`/api/cron/process-deliveries`) | Backoff-driven retries |
+| Dashboard auth | **DB-backed sessions** (`AdminUser` + `Session`), scrypt password hashing via `node:crypto` | Multi-user operator login for the CMS (§20). Dependency-free hashing. |
+| Hosting | **AlmaLinux 10 VPS** running Docker Compose: Caddy + app (Node 22-alpine) + Postgres 17 | Only Caddy (80/443) is public. **WAHA is an external 3rd-party HTTPS service** — see §18 |
 
 > **Architecture note:** The app runs as a long-running container (not serverless) because the e-book
 > is stored on the **app's local disk** and serverless filesystems are ephemeral/read-only. WAHA is
@@ -205,9 +208,14 @@ WAHA_SESSION=default
 EBOOK_FILES_DIR=/data/ebooks   # mounted private volume; MUST be outside the web root / public dir
 
 # Security
-ADMIN_TOKEN=          # bearer token for /api/admin/*
+ADMIN_TOKEN=          # bearer token for machine access to /api/admin/* (cron, scripts)
 CRON_SECRET=          # only needed if you trigger retries via an HTTP cron endpoint
 ```
+
+> **Dashboard auth (§20)** uses DB-backed sessions, not an env secret: the opaque session token
+> lives in an HTTP-only cookie and only its hash is stored in the `Session` table, so no
+> `SESSION_SECRET` is required. The first operator account is created with the `admin:create`
+> script (§20.3) — never commit a default password. `ADMIN_TOKEN` remains for machine/API callers.
 
 > All env access goes through a zod-validated `src/lib/env.ts`; the app must fail fast on startup
 > if a required variable is missing. **`WAHA_BASE_URL` must start with `https://`** — the app should
@@ -218,10 +226,14 @@ CRON_SECRET=          # only needed if you trigger retries via an HTTP cron endp
 
 ## 9. Data Schema (Prisma) `[STABLE]`
 
+> **Prisma 7 note:** the datasource has **no `url`** in `schema.prisma` — the connection string is
+> supplied via `prisma.config.js` (`datasource.url = process.env.DATABASE_URL`) for the CLI, and via
+> the `PrismaPg` adapter passed to `new PrismaClient({ adapter })` at runtime (see `src/lib/db.ts`).
+
 ```prisma
 // prisma/schema.prisma
 generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+datasource db { provider = "postgresql" }   // url is in prisma.config.js (Prisma 7)
 
 model Product {
   id          String   @id @default(cuid())
@@ -307,6 +319,30 @@ model Delivery {
   order         Order          @relation(fields: [orderId], references: [id])
   @@index([status, nextRetryAt])
 }
+
+// ── Dashboard / CMS (§20) ──────────────────────────────────────────────
+model AdminUser {                            // operator accounts for the dashboard
+  id           String    @id @default(cuid())
+  username     String    @unique
+  name         String
+  passwordHash String                        // format: "scrypt$<saltHex>$<hashHex>" (node:crypto)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {                              // DB-backed login sessions (opaque cookie token)
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique                // sha256 of the random token stored in the cookie
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+}
 ```
 
 ---
@@ -317,24 +353,35 @@ model Delivery {
 ebook-sales/
 ├── prisma/
 │   ├── schema.prisma
-│   └── seed.ts                                  # seed product(s)
+│   ├── seed.mjs                                 # seed product(s) — plain ESM, run with `node`
+│   └── migrations/
+├── prisma.config.js                            # Prisma 7 config: datasource.url = env DATABASE_URL
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx
 │   │   ├── page.tsx                             # default / redirect
 │   │   ├── [slug]/page.tsx                      # product landing + checkout form
 │   │   ├── thank-you/page.tsx                   # post-payment confirmation
+│   │   ├── admin/                               # operator dashboard / CMS (§20)
+│   │   │   ├── login/page.tsx                   # login form
+│   │   │   ├── layout.tsx                       # shell: sidebar nav + auth guard
+│   │   │   └── page.tsx                         # Leads Report (the mockup)
+│   │   │       # later slices: leads/, purchases/, active/, wa-logs/, program/, reports/, settings/
 │   │   └── api/
 │   │       ├── checkout/route.ts                # POST: create order + Snap token
 │   │       ├── webhooks/midtrans/route.ts       # POST: payment notification
 │   │       ├── cron/process-deliveries/route.ts # GET: retry due deliveries
 │   │       └── admin/
+│   │           ├── auth/login/route.ts          # POST: username+password → session cookie
+│   │           ├── auth/logout/route.ts         # POST: clear session
+│   │           ├── report/route.ts              # GET: dashboard metrics (today + 14-day series)
 │   │           ├── orders/route.ts              # GET: list/filter orders
 │   │           └── deliveries/[id]/resend/route.ts  # POST: manual re-send
 │   ├── components/
-│   │   └── checkout-form.tsx
+│   │   ├── checkout-form.tsx
+│   │   └── admin/                               # dashboard UI components (cards, table, filter bar)
 │   ├── lib/
-│   │   ├── db.ts            # Prisma singleton
+│   │   ├── db.ts            # Prisma client (PrismaPg adapter)
 │   │   ├── env.ts           # zod-validated env
 │   │   ├── validation.ts    # zod request schemas
 │   │   ├── orders.ts        # order creation + status transitions
@@ -343,11 +390,17 @@ ebook-sales/
 │   │   ├── files.ts         # resolve + read e-book from EBOOK_FILES_DIR (private)
 │   │   ├── phone.ts         # WhatsApp number normalization
 │   │   ├── delivery.ts      # idempotent send + retry orchestration
-│   │   └── auth.ts          # admin token + cron secret guards
+│   │   ├── auth.ts          # admin token + cron secret guards
+│   │   ├── password.ts      # scrypt hash + verify (node:crypto)        [D1]
+│   │   ├── session.ts       # create / validate / destroy login session [D1]
+│   │   └── report.ts        # pure metric aggregation functions          [D2]
+│   ├── middleware.ts        # gate /admin/* (redirect to /admin/login)   [D1]
 │   └── types/index.ts
-├── Dockerfile               # builds the Next.js app image
+├── scripts/
+│   └── create-admin.mjs     # `npm run admin:create` — make the first operator account [D1]
+├── Dockerfile               # builds the Next.js app image (Node 22-alpine)
 ├── Caddyfile                # reverse proxy + auto TLS (80/443 → app)
-├── docker-compose.yml       # app host: caddy + app + postgres (WAHA runs separately, see §18)
+├── docker-compose.yml       # app host: caddy + app + postgres (WAHA is 3rd-party, see §18)
 ├── .env.example
 ├── package.json
 ├── tsconfig.json
@@ -528,12 +581,18 @@ When the challenge is added, introduce (without changing existing tables):
 
 ## 16. Open Questions `[OPEN]`
 
-1. **Single product or catalog?** Schema supports many; confirm whether v1 ships one product only.
+1. ~~**Single product or catalog?**~~ **Resolved (2026-06-04):** single product for v1 (slug `lose-weight-challenge-1st-edition`, IDR 75,000). Schema stays catalog-capable.
 2. **Tracking ID semantics** — affiliate code, ad-campaign id, or both? Affects future reporting (not behaviour now).
 3. **Email fallback** — if WhatsApp delivery permanently fails, should the system also email the e-book? (Currently out of scope.)
 4. **Data retention period** for buyer PII (UU PDP).
 5. **3rd-party WAHA provider** — which provider, its **max request body size** (limits e-book size for base64), whether it supports **IP allowlisting**, its auth header, and whether a data-processing agreement is needed.
-6. **Checkout failure policy** — on Midtrans create failure, delete the PENDING order or mark it FAILED?
+6. ~~**Checkout failure policy?**~~ **Resolved (2026-06-04):** mark the order **FAILED** (not delete) — preserves the audit trail.
+
+**Dashboard decisions (resolved 2026-06-05 — see §20.2):**
+7. ~~**What is a "Lead"?**~~ Every checkout submission (an `Order`, any status). **Purchase** = `Order.status = PAID`. No new table.
+8. ~~**What does "Active" count?**~~ Challenge-program participants — **depends on the deferred Challenge module (§15)**, so it is rendered in the dashboard but **stubbed (0 / "—")** until that module is built. Same for the **Program** filter (`Diet90` is a placeholder).
+9. ~~**Dashboard login?**~~ **Multi-user username + password**, DB-backed sessions (`AdminUser` + `Session`).
+10. **WA Logs accuracy** `[OPEN]` — per-send-attempt timestamps are not stored today (only the `Delivery` row). A `DeliveryAttempt` audit table is recommended when the **WA Logs** page (slice D5) is built; dashboard v1 derives WA counts from `Delivery` status (§20.4).
 
 ---
 
@@ -711,6 +770,15 @@ Build feature-by-feature so an interruption between slices is always clean. Sugg
 **F4** WAHA base64 delivery → **F5** retry/backoff → **F6** admin view + manual resend → polish/SLC pass.
 Each slice ends green (builds + tests pass) and is committed before the next begins.
 
+**Done (2026-06-04/05):** scaffold + F1–F7 + SLC polish are built, tested (73 tests), and deployed;
+the stack was upgraded to the latest majors (Next 16 / Prisma 7 / Zod 4 / TS 6 / Node 22 / PG 17).
+
+**Dashboard / CMS (§20) — next:** **D1** admin auth & session (models, scrypt, login/logout,
+`/admin` guard, `admin:create` script) → **D2** report metrics API + pure aggregation functions →
+**D3** Leads Report dashboard UI (cards + 14-day table + filter bar; Active/Program stubbed).
+Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
+**D6** Settings / user management · **D7** CSV export (Laporan).
+
 ### 19.4 Anti-regression rules
 - Every completed feature gets at least one test; run the suite before and after each slice.
 - Commit the lockfile; never change dependency versions mid-build without recording it in `PROGRESS.md`.
@@ -720,3 +788,116 @@ Each slice ends green (builds + tests pass) and is committed before the next beg
 ### 19.5 Resuming in this chat interface (if not using Claude Code)
 A new conversation starts blank. To resume: upload the current repo (zip) + `PROGRESS.md` + this PRD,
 and instruct the assistant to run the §19.1 routine before writing any code.
+
+---
+
+## 20. Operator Dashboard / CMS `[DRAFT]`
+
+An internal, login-protected CMS for the operator. Indonesian UI. The first and priority page is the
+**Leads Report** (mockup: `docs/mockups/cms.png`) — real-time KPIs for today plus a 14-day table.
+The sidebar lists future pages (Leads, Purchase, Active, WA Logs, Program, Laporan, Pengaturan); only
+the Leads Report is in the initial scope (slices D1–D3). This module is **additive** — it must not
+change the buyer-facing flow or any §1–§14 invariant.
+
+### 20.1 Actors & scope
+- **Operator** (you / staff): logs in, reads metrics, (later) lists orders, resends, manages users.
+- **No buyer access.** The dashboard lives under `/admin/*` and is never linked from the storefront.
+
+### 20.2 Decisions (resolved 2026-06-05)
+- **Lead** = every checkout submission = an `Order` row (any status). **Purchase** = `Order.status = PAID`.
+  No new "lead" table; metrics are computed from existing `Order` / `Delivery` data.
+- **Active** and **Conv. Rate Active** = participants in the **challenge program** — which is the
+  **deferred Challenge module (§15)**. Until that module exists, these render in the UI per the mockup
+  but are **stubbed** (display `0` / `—`). The **Program** dropdown (`Diet90`) is a **placeholder**
+  and does not filter; the system stays single-product for now.
+- **Auth** = multi-user **username + password** with DB-backed sessions (`AdminUser` + `Session`).
+
+### 20.3 Authentication & sessions (slice D1)
+- **Passwords:** hashed with **scrypt via `node:crypto`** (no new dependency). Stored as
+  `scrypt$<saltHex>$<hashHex>`. Verify with a constant-time compare (`crypto.timingSafeEqual`).
+  Passwords are never logged and never returned by any API.
+- **Sessions:** on login, generate a 32-byte random token (`crypto.randomBytes`). Set it in an
+  **HTTP-only, Secure, SameSite=Lax** cookie named `admin_session`. Store only `sha256(token)` in the
+  `Session` table with a `userId` and `expiresAt` (default **7 days**). On each request, hash the
+  cookie token and look it up; reject if missing/expired. Logout deletes the row and clears the cookie.
+- **Gate:** `src/middleware.ts` redirects unauthenticated `/admin/*` (except `/admin/login`) to the
+  login page; `/api/admin/*` returns `401`. The existing `ADMIN_TOKEN` bearer continues to work for
+  machine/API callers (cron, scripts) alongside session auth.
+- **First account:** `npm run admin:create` (`scripts/create-admin.mjs`) prompts for username + name +
+  password (or reads env), hashes, and inserts an `AdminUser`. **No default password is ever committed.**
+- **Login hardening:** generic error on bad credentials (don't reveal which field); basic rate-limit /
+  small delay on repeated failures.
+
+### 20.4 Metric definitions (slice D2 — be exact)
+All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusive date range
+`[from, to]`. The dashboard shows two things: a **today (real-time)** summary and a **14-day series**
+(default: the 14 days ending **yesterday**). Per day `d`:
+
+| Metric | Definition |
+|---|---|
+| **Leads** | `count(Order)` where `Order.createdAt` falls on `d` |
+| **Purchase** | `count(Order)` where `status = PAID` and `paidAt` falls on `d` |
+| **Conversion Rate** | `Purchase / Leads` (→ `0%` when `Leads = 0`), shown as a percentage |
+| **Revenue** | `sum(amountIdr)` where `status = PAID` and `paidAt` falls on `d` (IDR integer) |
+| **Total WA** | `Sukses + Failed` |
+| **Sukses** | `count(Delivery)` where `status = SENT` and `sentAt` falls on `d` |
+| **Failed** | `count(Delivery)` where `status = FAILED` and `updatedAt` falls on `d` (terminal failures) |
+| **Active** | **stub = 0** until the Challenge module (§15) exists |
+| **Conv. Rate Active** | **stub = 0%** until the Challenge module exists |
+
+- The aggregation logic lives in **pure functions in `src/lib/report.ts`** so it is unit-testable with
+  fixtures (cover zero-division, empty days, and WIB day-boundary cases) without a live DB.
+- v1 uses live grouped queries (`GROUP BY date`); volume is low. A daily rollup table is a future
+  optimization, not needed now.
+- **WA accuracy caveat:** only the `Delivery` row is timestamped, not each retry attempt, so "Total WA"
+  counts deliveries by terminal state, not raw send attempts. Accurate per-attempt logs arrive with the
+  `DeliveryAttempt` table in slice D5 (WA Logs) — see §16 Q10.
+
+### 20.5 Routes & API
+**UI (App Router):**
+- `GET /admin/login` — login form.
+- `GET /admin` — Leads Report (cards + 14-day table + filter bar). Auth-gated.
+- *(later)* `/admin/leads`, `/admin/purchases`, `/admin/active`, `/admin/wa-logs`, `/admin/program`,
+  `/admin/reports`, `/admin/settings`.
+
+**API:**
+- `POST /api/admin/auth/login` — body `{ username, password }` → sets `admin_session` cookie; `200`/`401`.
+- `POST /api/admin/auth/logout` — clears cookie + deletes session; `200`.
+- `GET /api/admin/report?from=YYYY-MM-DD&to=YYYY-MM-DD` — auth-gated. Returns:
+  ```json
+  {
+    "today": { "date": "2026-06-01", "leads": 250, "purchase": 38, "convRate": 0.152,
+               "revenue": 3800000, "active": 0, "convRateActive": 0,
+               "totalWa": 40, "sukses": 38, "failed": 2 },
+    "series": [ { "date": "2026-05-19", "leads": 0, "purchase": 0, "convRate": 0, "revenue": 0,
+                  "active": 0, "convRateActive": 0, "totalWa": 0, "sukses": 0, "failed": 0 } ]
+  }
+  ```
+- Existing `GET /api/admin/orders` and `POST /api/admin/deliveries/{id}/resend` stay (now also accept
+  session auth, not only the bearer token).
+
+### 20.6 Acceptance criteria
+**D1 — Auth & session**
+- [ ] `AdminUser` + `Session` migrated; `admin:create` makes a working account.
+- [ ] Correct credentials log in and set an HTTP-only cookie; wrong credentials get a generic `401`.
+- [ ] `/admin` is unreachable when logged out (redirect to `/admin/login`); `/api/admin/*` returns `401`.
+- [ ] Logout invalidates the session (cookie cleared, row deleted; reuse of the old token fails).
+- [ ] Passwords are scrypt-hashed (constant-time verify) and never logged or returned. Tests: hash/verify, session create/validate/expire.
+
+**D2 — Report metrics API**
+- [ ] `GET /api/admin/report` returns the `today` + `series` shape above for a valid range; auth-gated.
+- [ ] Metric math matches §20.4 exactly, including WIB bucketing and `0%` on zero leads. Tests: pure
+      functions in `report.ts` with fixtures.
+
+**D3 — Dashboard UI**
+- [ ] `/admin` renders the six KPI cards and the 14-day table from `/api/admin/report`, matching the
+      mockup layout; the date-range + (placeholder) Program filter drive the query; Reset restores defaults.
+- [ ] **Active**, **Conv. Rate Active**, and **Program** are visibly present but clearly stubbed
+      (`0` / `—`) pending the Challenge module — no fabricated numbers.
+- [ ] Loading and empty states are handled; no secrets reach the client.
+
+### 20.7 Security & invariants
+- All §13 invariants still hold. Dashboard adds: passwords scrypt-hashed and never logged; sessions in
+  HTTP-only/Secure cookies; every `/admin/*` page and `/api/admin/*` route is auth-gated; the dashboard
+  reads aggregates only and exposes no e-book file, server key, or WAHA key to the browser; all query
+  params validated with Zod.

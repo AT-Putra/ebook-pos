@@ -6,9 +6,9 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.6.0 |
+| PRD version in sync with | 0.7.0 |
 | Last updated | 2026-06-05 |
-| Overall status | ALL SLICES DONE — deployed, stack upgraded |
+| Overall status | Core flow (F1–F7) DONE & deployed; dashboard (§20) specced — building D1 next |
 | Repo working state | green (build passes, 73 tests pass) |
 
 ## How to run
@@ -28,13 +28,18 @@
 - [x] F5 — Delivery retry / backoff (cron-style worker)
 - [x] F6 — Admin: list orders + manual resend (with corrected number)
 - [x] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
+- [ ] **D1 — Dashboard auth & session** (AdminUser+Session, scrypt, login/logout, `/admin` guard, `admin:create`)
+- [ ] **D2 — Report metrics API** (`/api/admin/report`, pure aggregation in `lib/report.ts`)
+- [ ] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
+- [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 CSV export
 
 ## In progress
-- (nothing — all slices complete)
+- **D1 — Dashboard auth & session** (see PRD §20.3 + §20.6). Not started; first dashboard slice.
 
 ## Next up
-- Finish deployment: upload e-book file, set Midtrans webhook URL, run sandbox E2E test.
-- Switch Midtrans keys to production after sandbox E2E passes.
+- D1 → D2 → D3 to ship the Leads Report dashboard (PRD §20).
+- Deployment finish (parallel ops task): upload e-book PDF, set Midtrans webhook + Finish Redirect URL,
+  add the retry cron, run sandbox E2E, then switch Midtrans to production keys.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -57,12 +62,22 @@
   - `postinstall` in package.json runs `prisma generate` automatically after `npm install`.
 - **Stack upgrade (2026-06-05):**
   - Next.js 15 → 16, TypeScript 5 → 6, Zod 3 → 4, ESLint 8 → 10.
-  - Prisma 6 → 7: `url` removed from schema datasource, moved to `prisma.config.ts`;
-    `PrismaClient` now uses `@prisma/adapter-pg` driver adapter; `prisma db seed` removed,
-    seed runs as `node prisma/seed.mjs` directly.
+  - Prisma 6 → 7: `url` removed from schema datasource, moved to `prisma.config.js` (plain JS so the
+    runner needs no TS runtime); `PrismaClient` now uses `@prisma/adapter-pg` driver adapter (also in
+    `prisma/seed.mjs`); `prisma db seed` removed, seed runs as `node prisma/seed.mjs` directly.
   - Node.js 20 → 22 in Dockerfile; PostgreSQL 16 → 17 in docker-compose.
   - `jest.config.js`: `moduleResolution: node` → `node16`, added `rootDir: './'` (TS 6 required).
   - ts-jest stays at 29.x (ts-jest 30 not yet released).
+  - Docker fixes: copy `prisma/` before `npm ci` (postinstall needs the schema); add empty `public/`;
+    copy full `node_modules` + `prisma.config.js` into the runner so `prisma migrate deploy` works;
+    use `node_modules/.bin/prisma` (not `npx`, which pulls a mismatched version).
+- **Dashboard / CMS decisions (2026-06-05 — PRD §20.2):**
+  - **Lead** = any checkout submission (`Order`, any status); **Purchase** = `Order.status=PAID`.
+    No new lead table — metrics derive from `Order`/`Delivery`.
+  - **Active / Conv.Rate Active / Program** = the DEFERRED Challenge module (§15); rendered in the UI
+    per the mockup but STUBBED (`0`/`—`) until that module is built. `Diet90` is a placeholder.
+  - **Auth** = multi-user username+password; `AdminUser` + `Session` models; scrypt via `node:crypto`;
+    HTTP-only cookie session; first account via `npm run admin:create`. Mockup: `docs/mockups/cms.png`.
 
 ## Known issues / TODO
 - (none)
@@ -77,9 +92,14 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
-- 2026-06-05 — Stack upgrade: Next 16, Prisma 7 (prisma.config.ts + pg adapter), Zod 4, TS 6,
-  Node 22, PG 17, ESLint 10. Docker fixes (public/ dir, node_modules copy for Prisma CLI).
-  Security fix: removed `usermod -aG docker` from production runbook. 73 tests green.
+- 2026-06-05 — Dashboard specced (PRD §20, v0.7.0): multi-user login + Leads Report per
+  `docs/mockups/cms.png`. Resolved Lead/Purchase/Active/Program/auth decisions. Added `AdminUser` +
+  `Session` to §9, admin routes to §10, slices D1–D3 to §19.3. Docs (PRD/CLAUDE/PROGRESS) updated so a
+  new session can build D1. No app code yet — spec only.
+- 2026-06-05 — Stack upgrade: Next 16, Prisma 7 (prisma.config.js + pg adapter), Zod 4, TS 6,
+  Node 22, PG 17, ESLint 10. Docker fixes (public/ dir, full node_modules copy for Prisma CLI,
+  prisma.config.js in runner, seed.mjs uses adapter). Security fix: removed `usermod -aG docker` from
+  production runbook. Deployed to VPS; migrations applied + product seeded. 73 tests green.
 - 2026-06-03 — Project planned; PRD at v0.6.0; CLAUDE.md and PROGRESS.md created. No code yet.
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).

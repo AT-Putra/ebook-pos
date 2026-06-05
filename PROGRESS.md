@@ -28,16 +28,16 @@
 - [x] F5 — Delivery retry / backoff (cron-style worker)
 - [x] F6 — Admin: list orders + manual resend (with corrected number)
 - [x] SLC polish pass (friendly WA message, thank-you page, error states, alerts)
-- [ ] **D1 — Dashboard auth & session** (AdminUser+Session, scrypt, login/logout, `/admin` guard, `admin:create`)
-- [ ] **D2 — Report metrics API** (`/api/admin/report`, pure aggregation in `lib/report.ts`)
-- [ ] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
+- [x] **D1 — Dashboard auth & session** (AdminUser+Session, scrypt, login/logout, `/admin` guard, `admin:create`)
+- [x] **D2 — Report metrics API** (`/api/admin/report`, pure aggregation in `lib/report.ts`)
+- [x] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 CSV export
 
 ## In progress
-- **D1 — Dashboard auth & session** (see PRD §20.3 + §20.6). Not started; first dashboard slice.
+- (nothing — D1–D3 complete; deploy dashboard to VPS next)
 
 ## Next up
-- D1 → D2 → D3 to ship the Leads Report dashboard (PRD §20).
+- Deploy D1–D3 to VPS: `git pull && sudo docker compose up -d --build`, run migration, create first admin account with `sudo docker compose exec app npm run admin:create`.
 - Deployment finish (parallel ops task): upload e-book PDF, set Midtrans webhook + Finish Redirect URL,
   add the retry cron, run sandbox E2E, then switch Midtrans to production keys.
 

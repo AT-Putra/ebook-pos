@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.0 |
-| Status | Core flow built & deployed; dashboard (§20) specced, not yet built |
+| Version | 0.7.1 |
+| Status | Core flow + dashboard (D1–D3) built & deployed; dashboard UX polish (D3.1) specced |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-05 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.1** (2026-06-05) — Added **§20.8 Dashboard UX polish + DataTable (slice D3.1)**: restyled KPI widgets and a reusable sortable/searchable/paginated table on **TanStack Table** with **CSV + PDF export**. New deps: `@tanstack/react-table`, `jspdf`, `jspdf-autotable`. Recorded in §6 tech stack, §19.3 build order, §20.6 acceptance. D1–D3 marked built/deployed.
 - **0.7.0** (2026-06-05) — Added **§20 Operator Dashboard / CMS** (multi-user login + Leads Report) per the mockup at `docs/mockups/cms.png`. Resolved dashboard decisions (Lead = any checkout submission; Purchase = PAID order; Active/Program tied to the deferred Challenge module and stubbed for now; multi-user username+password auth). Added `AdminUser` + `Session` to §9, admin UI routes to §10, dashboard slices (D1–D3) to §19.3.
 - **0.6.1** (2026-06-05) — Stack upgrade folded into the spec: **Next.js 16, Prisma 7 (+`@prisma/adapter-pg`), Zod 4, TypeScript 6, Node 22, PostgreSQL 17, ESLint 10.** Prisma 7 moves the datasource `url` out of `schema.prisma` into `prisma.config.js` and requires a driver adapter on `PrismaClient`; `prisma db seed` removed (seed runs as `node prisma/seed.mjs`). §6/§9 updated accordingly.
 - **0.6.0** (2026-06-03) — Added §19 Build &amp; resume protocol (source-of-truth hierarchy, session start/end routines, build order, commit discipline). Companion files: `CLAUDE.md` (auto-loaded project rules for Claude Code) and `PROGRESS.md` (live build state).
@@ -154,6 +155,8 @@ Acceptance criteria are written as testable statements. `[ ]` = must pass before
 | File storage | **Local private directory on the app server** | E-book files on a mounted volume, outside the web root, never served statically |
 | Background retries | System cron → delivery worker (`/api/cron/process-deliveries`) | Backoff-driven retries |
 | Dashboard auth | **DB-backed sessions** (`AdminUser` + `Session`), scrypt password hashing via `node:crypto` | Multi-user operator login for the CMS (§20). Dependency-free hashing. |
+| Dashboard tables | **TanStack Table** (`@tanstack/react-table`, headless) | Sortable / searchable / paginated tables for the CMS (§20.8). Styled by us. |
+| Dashboard export | **jsPDF** (`jspdf` + `jspdf-autotable`) for PDF; native `Blob` for CSV | Client-side CSV + PDF export of the current table view (§20.8). |
 | Hosting | **AlmaLinux 10 VPS** running Docker Compose: Caddy + app (Node 22-alpine) + Postgres 17 | Only Caddy (80/443) is public. **WAHA is an external 3rd-party HTTPS service** — see §18 |
 
 > **Architecture note:** The app runs as a long-running container (not serverless) because the e-book
@@ -770,14 +773,15 @@ Build feature-by-feature so an interruption between slices is always clean. Sugg
 **F4** WAHA base64 delivery → **F5** retry/backoff → **F6** admin view + manual resend → polish/SLC pass.
 Each slice ends green (builds + tests pass) and is committed before the next begins.
 
-**Done (2026-06-04/05):** scaffold + F1–F7 + SLC polish are built, tested (73 tests), and deployed;
-the stack was upgraded to the latest majors (Next 16 / Prisma 7 / Zod 4 / TS 6 / Node 22 / PG 17).
+**Done (2026-06-04/05):** scaffold + F1–F7 + SLC polish + **D1–D3** (dashboard auth, metrics API,
+Leads Report UI) are built, tested, and deployed; the stack was upgraded to the latest majors
+(Next 16 / Prisma 7 / Zod 4 / TS 6 / Node 22 / PG 17).
 
-**Dashboard / CMS (§20) — next:** **D1** admin auth & session (models, scrypt, login/logout,
-`/admin` guard, `admin:create` script) → **D2** report metrics API + pure aggregation functions →
-**D3** Leads Report dashboard UI (cards + 14-day table + filter bar; Active/Program stubbed).
+**Dashboard / CMS (§20) — in progress:** **D3.1** UX polish — restyled KPI widgets + a reusable
+sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF export (§20.8).
 Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
-**D6** Settings / user management · **D7** CSV export (Laporan).
+**D6** Settings / user management · **D7** Laporan page (broader cross-dataset export; per-table
+CSV/PDF export already ships in D3.1).
 
 ### 19.4 Anti-regression rules
 - Every completed feature gets at least one test; run the suite before and after each slice.
@@ -796,8 +800,8 @@ and instruct the assistant to run the §19.1 routine before writing any code.
 An internal, login-protected CMS for the operator. Indonesian UI. The first and priority page is the
 **Leads Report** (mockup: `docs/mockups/cms.png`) — real-time KPIs for today plus a 14-day table.
 The sidebar lists future pages (Leads, Purchase, Active, WA Logs, Program, Laporan, Pengaturan); only
-the Leads Report is in the initial scope (slices D1–D3). This module is **additive** — it must not
-change the buyer-facing flow or any §1–§14 invariant.
+the Leads Report is in the initial scope (slices D1–D3, plus the D3.1 UX-polish pass in §20.8). This
+module is **additive** — it must not change the buyer-facing flow or any §1–§14 invariant.
 
 ### 20.1 Actors & scope
 - **Operator** (you / staff): logs in, reads metrics, (later) lists orders, resends, manages users.
@@ -896,8 +900,47 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
       (`0` / `—`) pending the Challenge module — no fabricated numbers.
 - [ ] Loading and empty states are handled; no secrets reach the client.
 
+**D3.1 — Dashboard UX polish + DataTable** (see §20.8)
+- [ ] KPI cards restyled: icon/accent per card, clear label + value + sub-label, consistent spacing.
+- [ ] The 14-day table renders via a reusable `DataTable` (TanStack Table); clicking a column header
+      cycles sort asc → desc → none; a numeric/date column sorts correctly (not lexicographically).
+- [ ] A global search box filters rows across columns; pagination with a page-size selector works.
+- [ ] **Export CSV** and **Export PDF** download the *current* (searched/sorted) view.
+- [ ] Active / Conv. Rate Active / Program remain stubbed (`—`); the totals row still reflects the data.
+- [ ] Build green, tests green, `tsc --noEmit` clean; lockfile committed with the 3 new deps.
+
 ### 20.7 Security & invariants
 - All §13 invariants still hold. Dashboard adds: passwords scrypt-hashed and never logged; sessions in
   HTTP-only/Secure cookies; every `/admin/*` page and `/api/admin/*` route is auth-gated; the dashboard
   reads aggregates only and exposes no e-book file, server key, or WAHA key to the browser; all query
   params validated with Zod.
+
+### 20.8 Dashboard UX polish + DataTable (slice D3.1)
+The initial D3 dashboard is functionally complete but visually plain. D3.1 makes it lovable without
+adding any new data or endpoint — it is a **pure front-end** enhancement of `/admin`.
+
+**Decision (2026-06-05):** use **TanStack Table** (`@tanstack/react-table`, headless) for table
+behavior — it is the idiomatic React choice (the jQuery DataTables plugin was rejected as it fights
+React's render model). Export uses **`jspdf` + `jspdf-autotable`** for PDF and a native `Blob` for CSV.
+All three are client-only and tree-shaken into the dashboard bundle; they never touch the buyer flow.
+
+**KPI widgets.** Restyle the six cards: each gets a small icon, an accent color, the metric value, and
+a sub-label. Keep the today/real-time framing. Stubbed cards (Active, Conv. Rate Active) stay visibly
+greyed/`—`. No layout regressions vs. the mockup (`docs/mockups/cms.png`).
+
+**Reusable `DataTable` component** (`src/components/admin/DataTable.tsx`), generic over row type:
+- **Sortable columns** — click header to cycle asc → desc → none; columns declare their type so dates
+  and numbers sort by value, not string. Revenue/percent columns render formatted but sort by raw value.
+- **Global search** — a single input filtering across all columns (TanStack `globalFilter`).
+- **Pagination** — page controls + a page-size selector (e.g. 10 / 20 / 50; default 20).
+- **CSV export** — serialize the current filtered/sorted rows to CSV via a `Blob` download.
+- **PDF export** — render the current view to a PDF via `jspdf-autotable` (title + date range + table).
+- Props: `columns` (key, header label, accessor, type, optional formatter, sortable flag), `rows`,
+  `searchable`, `pageSize`, and optional `exportFileName` + `exportTitle`.
+
+**Applied to the Leads Report.** The 14-day series renders through `DataTable`; the TOTAL row stays
+(rendered outside the paginated body, e.g. a table footer, so it isn't sorted/paged away). The KPI
+cards and filter bar from D3 are unchanged in behavior.
+
+**Out of scope for D3.1:** server-side pagination (volume is low — all client-side), column show/hide,
+saved views. The broader cross-dataset **Laporan** export page remains **D7**.

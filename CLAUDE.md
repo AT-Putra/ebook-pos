@@ -17,6 +17,7 @@ done, idempotent, and recoverable.
 - Midtrans Snap (payments) + webhook
 - 3rd-party WAHA over HTTPS (WhatsApp delivery), base64 file payload
 - Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host
+- Dashboard tables: TanStack Table (`@tanstack/react-table`); export: `jspdf` + `jspdf-autotable` (PDF), `Blob` (CSV)
 
 ## Commands
 - Install: `npm install`
@@ -33,8 +34,9 @@ done, idempotent, and recoverable.
 - `src/app/api/webhooks/midtrans/route.ts` — payment notification
 - `src/app/api/cron/process-deliveries/route.ts` — retry worker
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
-- `src/app/admin/*` — operator dashboard / CMS UI (login + Leads Report); `src/middleware.ts` gates it
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `report` for the dashboard)
+- `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
+- `src/components/admin/*` — dashboard UI: `Sidebar`, `KpiCard`, `LeadsReport`, `DataTable` (TanStack)
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report` for the dashboard)
 - `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
@@ -62,9 +64,9 @@ Delivery happens ONLY on PAID.
 ## Build order (vertical slices — see PRD §19.3)
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →
 F3 webhook → F4 WAHA base64 delivery → F5 retry/backoff → F6 admin+resend → SLC polish.
-**Done & deployed (F1–F7 + polish). Next: dashboard (PRD §20):**
-D1 admin auth+session → D2 report metrics API → D3 Leads Report UI.
-(Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 CSV export.)
+**Done & deployed (F1–F7 + polish + D1–D3 dashboard).** In progress: **D3.1** dashboard UX polish —
+restyled KPI widgets + reusable `DataTable` (TanStack Table: sort/search/paginate) with CSV+PDF export (§20.8).
+(Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 Laporan export page.)
 Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is updated.
 
 ## Dashboard notes (PRD §20)
@@ -76,6 +78,9 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - Auth: multi-user username+password, scrypt via `node:crypto`, DB-backed `Session` (HTTP-only cookie).
   First account via `npm run admin:create`. Never commit a default password. `ADMIN_TOKEN` still works
   for machine/API callers. Put metric math in pure functions in `lib/report.ts` (unit-tested, no DB).
+- Tables use the reusable `DataTable` (TanStack Table) — sort by raw value (dates/numbers, not strings),
+  global search, pagination; CSV via `Blob`, PDF via `jspdf-autotable`. Export reflects the current view.
+  TOTAL row renders in the table footer (outside the paged/sorted body). jQuery DataTables is banned (fights React).
 
 ## Working rules
 - Read files before editing; never assume prior content.
@@ -84,6 +89,8 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - A feature is "done" only when its PRD §5 acceptance criteria are ticked AND verified.
 - If you make a design decision, record it in PROGRESS.md and fold it into the PRD (bump version).
 - Don't introduce dependencies or version bumps without noting them in PROGRESS.md. Commit the lockfile.
+- **Any added/changed feature ⇒ update ALL three md files (PRD, PROGRESS.md, CLAUDE.md) to match —**
+  spec it in the PRD (bump version + changelog) BEFORE building, so a fresh session can work from the docs.
 
 ## Deferred (do NOT build now)
 Contest/challenge module. Keep `Customer`↔`Order` clean and queryable by `productId` + `status=PAID`

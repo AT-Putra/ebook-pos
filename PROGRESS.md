@@ -6,10 +6,10 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.7.0 |
+| PRD version in sync with | 0.7.1 |
 | Last updated | 2026-06-05 |
-| Overall status | Core flow (F1–F7) DONE & deployed; dashboard (§20) specced — building D1 next |
-| Repo working state | green (build passes, 73 tests pass) |
+| Overall status | F1–F7 + dashboard D1–D3 built & deployed; building D3.1 (dashboard UX polish) |
+| Repo working state | green (build passes, 82 tests pass) |
 
 ## How to run
 - Install: `npm install`
@@ -31,13 +31,17 @@
 - [x] **D1 — Dashboard auth & session** (AdminUser+Session, scrypt, login/logout, `/admin` guard, `admin:create`)
 - [x] **D2 — Report metrics API** (`/api/admin/report`, pure aggregation in `lib/report.ts`)
 - [x] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
-- [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 CSV export
+- [ ] **D3.1 — Dashboard UX polish** (restyled KPI widgets + TanStack `DataTable`: sort/search/paginate + CSV/PDF export) — see PRD §20.8
+- [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
-- (nothing — D1–D3 complete; deploy dashboard to VPS next)
+- **D3.1 — Dashboard UX polish + DataTable** (PRD §20.8). Restyle KPI cards; build reusable
+  `src/components/admin/DataTable.tsx` on TanStack Table (sort/search/paginate) with CSV + PDF export;
+  apply to the 14-day series table (TOTAL row in footer). New deps: `@tanstack/react-table`,
+  `jspdf`, `jspdf-autotable`.
 
 ## Next up
-- Deploy D1–D3 to VPS: `git pull && sudo docker compose up -d --build`, run migration, create first admin account with `sudo docker compose exec app npm run admin:create`.
+- Deploy D3.1 to VPS: `git pull && sudo docker compose up -d --build` (no migration needed — pure UI).
 - Deployment finish (parallel ops task): upload e-book PDF, set Midtrans webhook + Finish Redirect URL,
   add the retry cron, run sandbox E2E, then switch Midtrans to production keys.
 
@@ -78,6 +82,9 @@
     per the mockup but STUBBED (`0`/`—`) until that module is built. `Diet90` is a placeholder.
   - **Auth** = multi-user username+password; `AdminUser` + `Session` models; scrypt via `node:crypto`;
     HTTP-only cookie session; first account via `npm run admin:create`. Mockup: `docs/mockups/cms.png`.
+- **Dashboard tables (D3.1, 2026-06-05 — PRD §20.8):** use **TanStack Table** (`@tanstack/react-table`)
+  for sort/search/paginate; **`jspdf` + `jspdf-autotable`** for PDF export, native `Blob` for CSV.
+  jQuery DataTables rejected (fights React's render model). Sort by raw value; export reflects current view.
 
 ## Known issues / TODO
 - (none)
@@ -92,6 +99,16 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — D3.1 specced (PRD v0.7.1, §20.8): dashboard UX polish — restyled KPI widgets +
+  reusable TanStack `DataTable` (sort/search/paginate) with CSV + PDF export. Decision: TanStack Table
+  + jspdf/jspdf-autotable (jQuery DataTables rejected). Docs updated across PRD/CLAUDE/PROGRESS before
+  building, per the standing rule "any added feature ⇒ update all md files first".
+- 2026-06-05 — Dashboard D1–D3 built & deployed: auth (AdminUser+Session, scrypt, cookie sessions,
+  `/admin` guard via proxy.ts, `admin:create`), metrics API (`/api/admin/report`, WIB-bucketed
+  `lib/report.ts`), Leads Report UI (KPI cards + 14-day table + filter). Fixes: Dockerfile copies
+  scripts/; middleware→proxy.ts rename (Next 16) + export renamed to `proxy`; (dashboard) route group
+  to break login redirect loop; proxy allows `/api/admin/auth/*` through. Added pre-push hook
+  (tests+tsc+docker build). 82 tests green.
 - 2026-06-05 — Dashboard specced (PRD §20, v0.7.0): multi-user login + Leads Report per
   `docs/mockups/cms.png`. Resolved Lead/Purchase/Active/Program/auth decisions. Added `AdminUser` +
   `Session` to §9, admin routes to §10, slices D1–D3 to §19.3. Docs (PRD/CLAUDE/PROGRESS) updated so a

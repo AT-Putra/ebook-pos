@@ -63,12 +63,12 @@ cp .env.example .env
 sudo mkdir -p /data/ebooks
 sudo cp your-ebook.pdf /data/ebooks/lose-weight-challenge-1st-edition.pdf
 
-# 3. Start services
-docker compose up -d --build
+# 3. Start services (use sudo — do NOT add your user to the docker group on production)
+sudo docker compose up -d --build
 
 # 4. Apply DB migrations and seed
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npx prisma db seed
+sudo docker compose exec app npx prisma migrate deploy
+sudo docker compose exec app npx prisma db seed
 ```
 
 Point your domain DNS A record at the server — Caddy auto-provisions TLS.

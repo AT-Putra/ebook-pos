@@ -11,7 +11,7 @@ const NAV = [
   { label: 'WA Logs', href: '/admin/wa-logs', icon: '💬' },
   { label: 'Program', href: '/admin/program', icon: '🎯' },
   { label: 'Laporan', href: '/admin/reports', icon: '📄' },
-  { label: 'Pengaturan', href: '/admin/settings', icon: '⚙️' },
+  { label: 'Pengaturan', href: '/admin/settings', icon: '⚙️', ready: true },
 ];
 
 export function Sidebar({ userName, userUsername }: { userName: string; userUsername: string }) {

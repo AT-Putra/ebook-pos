@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.3 |
-| Status | Core flow + dashboard (D1–D3 + D3.1) built & deployed |
+| Version | 0.7.4 |
+| Status | Core flow + dashboard (D1–D3 + D3.1) + CORS allowlist (D8) built & deployed |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-05 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.4** (2026-06-05) — Added **§20.9 CORS domain allowlist (slice D8)** so external landing pages on other domains can POST to `/api/checkout` from the browser. New `AllowedOrigin` table; `/api/checkout` gains an `OPTIONS` preflight + per-response `Access-Control-Allow-Origin` echoed only for whitelisted (or same-app) origins; admin CRUD at `/api/admin/origins`; managed from the **Pengaturan** dashboard page. CORS is checked **live** against the DB (no restart needed).
 - **0.7.3** (2026-06-05) — Second bug-fix pass (state machine + delivery): (1) `canTransition` rewritten as an explicit allowed-transition map — a **PAID order can no longer be overwritten** by a late `FAILED`/`EXPIRED`/`CANCELLED` (only `PAID → REFUNDED`); failure/refund states are terminal. (2) Same→same is now a true **no-op** (duplicate `settlement` no longer re-writes `paidAt`). (3) `attemptDelivery` now **atomically claims** the row (`PENDING/FAILED → PROCESSING` via `updateMany`), closing a double-send race (invariant #3). (4) `processDueDeliveries` **reclaims stale `PROCESSING`** rows (orphaned by a crash, >10 min) so they retry. (5) Backoff off-by-one fixed — first retry is 1 min again. (6) `orderCode` uses crypto randomness + collision retry. (7) webhook signature compare is constant-time.
 - **0.7.2** (2026-06-05) — Bug-fix pass: (1) the proxy now guards **only** `/admin/*` UI pages; `/api/admin/*` routes **self-authenticate** via a shared `requireAdmin()` accepting a session cookie **or** the `ADMIN_TOKEN` bearer (previously the proxy's cookie-only gate blocked bearer/machine callers and left orders/resend unreachable). (2) `Sukses` is now bucketed by `sentAt` per §20.4 (was `updatedAt`). (3) `/api/admin/report` caps the range at 366 days. (4) `admin:create` masks the password input. §20.3/§20.5 updated.
 - **0.7.1** (2026-06-05) — Added **§20.8 Dashboard UX polish + DataTable (slice D3.1)**: restyled KPI widgets and a reusable sortable/searchable/paginated table on **TanStack Table** with **CSV + PDF export**. New deps: `@tanstack/react-table`, `jspdf`, `jspdf-autotable`. Recorded in §6 tech stack, §19.3 build order, §20.6 acceptance. D1–D3 marked built/deployed.
@@ -347,6 +348,15 @@ model Session {                              // DB-backed login sessions (opaque
   user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId])
   @@index([expiresAt])
+}
+
+model AllowedOrigin {                         // CORS allowlist for /api/checkout (§20.9)
+  id        String   @id @default(cuid())
+  origin    String   @unique                  // normalized "scheme://host[:port]"
+  label     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 ```
 
@@ -784,9 +794,10 @@ Leads Report UI) are built, tested, and deployed; the stack was upgraded to the 
 
 **Dashboard / CMS (§20) — in progress:** **D3.1** UX polish — restyled KPI widgets + a reusable
 sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF export (§20.8).
+**Done:** **D8** CORS domain allowlist (§20.9) — `AllowedOrigin` + `/api/checkout` CORS + Pengaturan UI.
 Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
-**D6** Settings / user management · **D7** Laporan page (broader cross-dataset export; per-table
-CSV/PDF export already ships in D3.1).
+**D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
+per-table CSV/PDF export already ships in D3.1).
 
 ### 19.4 Anti-regression rules
 - Every completed feature gets at least one test; run the suite before and after each slice.
@@ -953,3 +964,33 @@ cards and filter bar from D3 are unchanged in behavior.
 
 **Out of scope for D3.1:** server-side pagination (volume is low — all client-side), column show/hide,
 saved views. The broader cross-dataset **Laporan** export page remains **D7**.
+
+### 20.9 CORS domain allowlist (slice D8)
+External landing pages hosted on **other domains** must be able to POST to `/api/checkout` from the
+visitor's browser. Browsers block cross-origin reads unless the server returns a matching
+`Access-Control-Allow-Origin`, so the operator manages an allowlist of origins.
+
+**Data:** `AllowedOrigin` (§9) — `origin` (normalized `scheme://host[:port]`, unique), `label`, `isActive`.
+
+**Enforcement (`src/lib/cors.ts`, applied in `/api/checkout`):**
+- `normalizeOrigin()` parses/normalizes an origin (http/https only; lowercased host; strips path/query/
+  trailing slash); invalid input → rejected at the admin API.
+- `/api/checkout` exports an **`OPTIONS`** preflight handler and echoes
+  `Access-Control-Allow-Origin: <origin>` (+ `Methods`/`Headers`/`Max-Age`/`Vary: Origin`) **only** when
+  the request `Origin` is the app's own origin **or** an active `AllowedOrigin`. Checked **live** against
+  the DB on each request (no restart). A non-whitelisted cross-origin browser request gets no CORS
+  headers (preflight → `403`), so the browser blocks it.
+- **Same-origin / server-side callers** (no `Origin` header) are unaffected — this is purely about
+  cross-origin **browser** access. Note: CORS is not an anti-abuse control (non-browser clients ignore
+  it); `/api/checkout` remains public by design.
+
+**Admin API (all `requireAdmin`):** `GET /api/admin/origins` (list), `POST /api/admin/origins`
+(`{ origin, label? }` → normalize + create; `409` if duplicate, `422` if invalid),
+`PATCH /api/admin/origins/{id}` (`{ isActive }` toggle), `DELETE /api/admin/origins/{id}`.
+
+**UI:** the **Pengaturan** page (`/admin/(dashboard)/settings`) lists origins with add / activate-toggle /
+delete (`src/components/admin/OriginManager.tsx`). The sidebar's Pengaturan item is now enabled.
+
+**Landing-page integration:** POST JSON `{ productSlug, name, email, whatsapp, trackingId? }` to
+`https://<app>/api/checkout`; on `200` redirect to `redirectUrl` (or open Snap with `snapToken`). The
+landing page's origin must be on the allowlist for a browser POST to succeed.

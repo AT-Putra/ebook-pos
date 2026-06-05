@@ -32,6 +32,7 @@
 - [x] **D2 — Report metrics API** (`/api/admin/report`, pure aggregation in `lib/report.ts`)
 - [x] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
 - [x] **D3.1 — Dashboard UX polish** (restyled KPI widgets + TanStack `DataTable`: sort/search/paginate + CSV/PDF export) — see PRD §20.8
+- [x] **D8 — CORS domain allowlist** (`AllowedOrigin` + `/api/checkout` CORS + `/api/admin/origins` + Pengaturan UI) — PRD §20.9
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
@@ -96,6 +97,12 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — D8 CORS domain allowlist (PRD 0.7.4 §20.9): `AllowedOrigin` table (+migration);
+  `lib/cors.ts` (normalizeOrigin, live DB check); `/api/checkout` now has an OPTIONS preflight +
+  echoes ACAO only for app-origin or active listed origins; admin CRUD `/api/admin/origins[/id]`
+  (requireAdmin); Pengaturan page (`/admin/(dashboard)/settings` + `OriginManager`) to add/toggle/
+  delete domains; sidebar Pengaturan enabled. Lets external landing pages on other domains POST to
+  checkout from the browser. 89 tests; tsc + build clean.
 - 2026-06-05 — Second bug-fix pass (PRD 0.7.3), deeper review of core flow: (1) `canTransition`
   rewritten as explicit allow-map — PAID can no longer be overwritten by a late FAILED/EXPIRED/CANCELLED
   (only PAID→REFUNDED); (2) same→same is a true no-op (duplicate settlement won't reset paidAt);

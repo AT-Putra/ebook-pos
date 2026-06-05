@@ -5,13 +5,30 @@ import { db } from '@/lib/db';
 import { createPendingOrder } from '@/lib/orders';
 import { createSnapTransaction } from '@/lib/midtrans';
 import { toChatId } from '@/lib/phone';
+import { corsHeadersFor } from '@/lib/cors';
+
+/** CORS preflight: allow only origins on the AllowedOrigin whitelist (or the app's own). */
+export async function OPTIONS(req: NextRequest) {
+  const cors = await corsHeadersFor(req.headers.get('origin'));
+  if (!cors['Access-Control-Allow-Origin']) {
+    return new NextResponse(null, { status: 403 });
+  }
+  return new NextResponse(null, { status: 204, headers: cors });
+}
 
 export async function POST(req: NextRequest) {
+  // CORS: cross-origin browsers only get a readable response if their origin is
+  // whitelisted. Same-origin / server-side callers (no Origin header) are unaffected.
+  const cors = await corsHeadersFor(req.headers.get('origin'));
+
+  const json = (body: unknown, status = 200) =>
+    NextResponse.json(body, { status, headers: cors });
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Request body harus JSON.' }, { status: 400 });
+    return json({ error: 'Request body harus JSON.' }, 400);
   }
 
   // 1. Validate input.
@@ -22,7 +39,7 @@ export async function POST(req: NextRequest) {
       const key = issue.path[0]?.toString() ?? '_';
       fields[key] = [...(fields[key] ?? []), issue.message];
     }
-    return NextResponse.json({ error: 'Validasi gagal.', fields }, { status: 422 });
+    return json({ error: 'Validasi gagal.', fields }, 422);
   }
 
   const { productSlug, name, email, whatsapp, trackingId } = result.data;
@@ -30,7 +47,7 @@ export async function POST(req: NextRequest) {
   // 2. Look up active product.
   const product = await db.product.findUnique({ where: { slug: productSlug } });
   if (!product || !product.isActive) {
-    return NextResponse.json({ error: 'Produk tidak ditemukan.' }, { status: 404 });
+    return json({ error: 'Produk tidak ditemukan.' }, 404);
   }
 
   // 3. Upsert customer (by normalised whatsapp + email).
@@ -68,10 +85,7 @@ export async function POST(req: NextRequest) {
       data: { status: OrderStatus.FAILED },
     });
     console.error('[checkout] Midtrans Snap error:', err);
-    return NextResponse.json(
-      { error: 'Gagal membuat transaksi pembayaran. Silakan coba lagi.' },
-      { status: 502 },
-    );
+    return json({ error: 'Gagal membuat transaksi pembayaran. Silakan coba lagi.' }, 502);
   }
 
   // 6. Store snap token on the order.
@@ -84,7 +98,7 @@ export async function POST(req: NextRequest) {
   });
 
   // 7. Return token to client — SERVER KEY NEVER LEAVES THE SERVER.
-  return NextResponse.json({
+  return json({
     orderCode,
     snapToken: snap.token,
     redirectUrl: snap.redirect_url,

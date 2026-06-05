@@ -6,8 +6,9 @@ Sells a single digital e-book and delivers it to the buyer over WhatsApp.
 
 ## Stack
 
-- Next.js 15 (App Router) + TypeScript
-- PostgreSQL + Prisma
+- Next.js 16 (App Router) + TypeScript 6
+- PostgreSQL 17 + Prisma 7 + `@prisma/adapter-pg`
+- Zod 4 (input + env validation)
 - Midtrans Snap (payments)
 - WAHA over HTTPS (WhatsApp delivery, base64 payload)
 - Caddy (reverse proxy + TLS), Docker Compose, AlmaLinux 10
@@ -16,7 +17,7 @@ Sells a single digital e-book and delivers it to the buyer over WhatsApp.
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - PostgreSQL (local or Docker)
 - A WAHA provider account (3rd-party managed service)
 - Midtrans sandbox account
@@ -27,9 +28,9 @@ Sells a single digital e-book and delivers it to the buyer over WhatsApp.
 cp .env.example .env
 # Fill in all values in .env
 
-npm install          # also runs prisma generate
+npm install              # also runs prisma generate
 npx prisma migrate dev
-npx prisma db seed
+node prisma/seed.mjs     # prisma db seed removed in Prisma 7
 npm run dev
 ```
 
@@ -67,9 +68,12 @@ sudo cp your-ebook.pdf /data/ebooks/lose-weight-challenge-1st-edition.pdf
 sudo docker compose up -d --build
 
 # 4. Apply DB migrations and seed
-sudo docker compose exec app npx prisma migrate deploy
-sudo docker compose exec app npx prisma db seed
+sudo docker compose exec app node_modules/.bin/prisma migrate deploy
+sudo docker compose exec app node prisma/seed.mjs
 ```
+
+> **PostgreSQL major version upgrade:** If upgrading from a previous deployment with PG 16,
+> run `sudo docker compose down -v` first to remove the old volume before bringing the stack up.
 
 Point your domain DNS A record at the server — Caddy auto-provisions TLS.
 

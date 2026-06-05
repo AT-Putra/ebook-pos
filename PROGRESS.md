@@ -7,15 +7,15 @@
 | Field | Value |
 |---|---|
 | PRD version in sync with | 0.6.0 |
-| Last updated | 2026-06-04 |
-| Overall status | ALL SLICES DONE — ready for deployment |
+| Last updated | 2026-06-05 |
+| Overall status | ALL SLICES DONE — deployed, stack upgraded |
 | Repo working state | green (build passes, 73 tests pass) |
 
-## How to run (fill in once scaffolded)
+## How to run
 - Install: `npm install`
 - Dev: `npm run dev`
 - Test: `npm test`
-- DB: `npx prisma migrate dev && npx prisma db seed`
+- DB: `npx prisma migrate dev && node prisma/seed.mjs`
 - Local stack: `docker compose up -d --build`
 
 ## Feature checklist (tick when acceptance criteria in PRD §5 pass AND are verified)
@@ -33,7 +33,8 @@
 - (nothing — all slices complete)
 
 ## Next up
-- Deploy: follow PRD §18 runbook; upload e-book file; set Midtrans webhook URL; run sandbox E2E test.
+- Finish deployment: upload e-book file, set Midtrans webhook URL, run sandbox E2E test.
+- Switch Midtrans keys to production after sandbox E2E passes.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -54,6 +55,14 @@
   - `jest.config.js` (plain JS, not TS) — avoids `ts-node` dependency.
   - `.gitignore` extended with `*.pem/*.key/*.crt/*.cert/*.p12/*.pfx` and `jest-cache/`.
   - `postinstall` in package.json runs `prisma generate` automatically after `npm install`.
+- **Stack upgrade (2026-06-05):**
+  - Next.js 15 → 16, TypeScript 5 → 6, Zod 3 → 4, ESLint 8 → 10.
+  - Prisma 6 → 7: `url` removed from schema datasource, moved to `prisma.config.ts`;
+    `PrismaClient` now uses `@prisma/adapter-pg` driver adapter; `prisma db seed` removed,
+    seed runs as `node prisma/seed.mjs` directly.
+  - Node.js 20 → 22 in Dockerfile; PostgreSQL 16 → 17 in docker-compose.
+  - `jest.config.js`: `moduleResolution: node` → `node16`, added `rootDir: './'` (TS 6 required).
+  - ts-jest stays at 29.x (ts-jest 30 not yet released).
 
 ## Known issues / TODO
 - (none)
@@ -68,6 +77,9 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — Stack upgrade: Next 16, Prisma 7 (prisma.config.ts + pg adapter), Zod 4, TS 6,
+  Node 22, PG 17, ESLint 10. Docker fixes (public/ dir, node_modules copy for Prisma CLI).
+  Security fix: removed `usermod -aG docker` from production runbook. 73 tests green.
 - 2026-06-03 — Project planned; PRD at v0.6.0; CLAUDE.md and PROGRESS.md created. No code yet.
 - 2026-06-04 — Scaffold slice complete: Next.js 15 + TS, Prisma schema (§9 exact), zod env
   validation, Dockerfile (standalone), docker-compose.yml, Caddyfile, Jest test suite (5 tests green).

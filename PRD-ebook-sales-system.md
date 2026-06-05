@@ -649,10 +649,14 @@ yourdomain.com {
 
 ### 18.5 App host — bring-up
 ```bash
-docker compose up -d --build
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npx prisma db seed
+sudo docker compose up -d --build
+sudo docker compose exec app node_modules/.bin/prisma migrate deploy
+sudo docker compose exec app node prisma/seed.mjs
 ```
+
+> `prisma db seed` was removed in Prisma 7. Run the seed script directly.
+> Do NOT use `npx prisma` — npx pulls the latest registry version which may differ from the
+> installed version. Use the local binary at `node_modules/.bin/prisma` instead.
 
 ### 18.6 Final wiring
 - Point the domain's DNS **A record** at the App host IP (Caddy then issues TLS automatically).

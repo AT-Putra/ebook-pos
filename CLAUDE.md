@@ -11,12 +11,12 @@ file to the buyer's WhatsApp via a 3rd-party WAHA service. No contest yet (defer
 done, idempotent, and recoverable.
 
 ## Stack
-- Next.js (App Router) + TypeScript
-- PostgreSQL + Prisma
-- zod for input + env validation
+- Next.js 16 (App Router) + TypeScript 6
+- PostgreSQL 17 + Prisma 7 + `@prisma/adapter-pg` (driver adapter required by Prisma 7)
+- Zod 4 for input + env validation
 - Midtrans Snap (payments) + webhook
 - 3rd-party WAHA over HTTPS (WhatsApp delivery), base64 file payload
-- Caddy (reverse proxy + TLS), Docker Compose, AlmaLinux 10 host
+- Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host
 
 ## Commands
 - Install: `npm install`
@@ -25,8 +25,8 @@ done, idempotent, and recoverable.
 - Test: `npm test` (run before AND after each slice)
 - Lint/typecheck: `npm run lint` / `npx tsc --noEmit`
 - DB migrate (dev): `npx prisma migrate dev`
-- DB migrate (deploy): `npx prisma migrate deploy`
-- Seed: `npx prisma db seed`
+- DB migrate (deploy): `node_modules/.bin/prisma migrate deploy`
+- Seed: `node prisma/seed.mjs` (`prisma db seed` removed in Prisma 7)
 
 ## Project layout (see PRD §10)
 - `src/app/[slug]/page.tsx` — checkout page; `src/app/api/checkout/route.ts` — create order + Snap
@@ -34,7 +34,7 @@ done, idempotent, and recoverable.
 - `src/app/api/cron/process-deliveries/route.ts` — retry worker
 - `src/app/api/admin/*` — operator endpoints
 - `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth`
-- `prisma/schema.prisma`, `prisma/seed.ts`
+- `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.ts`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
 1. **Midtrans webhook**: verify `signature_key == SHA512(order_id + status_code + gross_amount + SERVER_KEY)`

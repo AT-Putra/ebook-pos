@@ -8,7 +8,8 @@ const config = {
       {
         tsconfig: {
           module: 'commonjs',
-          moduleResolution: 'node',
+          moduleResolution: 'node16',
+          rootDir: './',
         },
       },
     ],

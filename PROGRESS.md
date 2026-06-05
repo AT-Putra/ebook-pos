@@ -31,14 +31,11 @@
 - [x] **D1 — Dashboard auth & session** (AdminUser+Session, scrypt, login/logout, `/admin` guard, `admin:create`)
 - [x] **D2 — Report metrics API** (`/api/admin/report`, pure aggregation in `lib/report.ts`)
 - [x] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
-- [ ] **D3.1 — Dashboard UX polish** (restyled KPI widgets + TanStack `DataTable`: sort/search/paginate + CSV/PDF export) — see PRD §20.8
+- [x] **D3.1 — Dashboard UX polish** (restyled KPI widgets + TanStack `DataTable`: sort/search/paginate + CSV/PDF export) — see PRD §20.8
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
-- **D3.1 — Dashboard UX polish + DataTable** (PRD §20.8). Restyle KPI cards; build reusable
-  `src/components/admin/DataTable.tsx` on TanStack Table (sort/search/paginate) with CSV + PDF export;
-  apply to the 14-day series table (TOTAL row in footer). New deps: `@tanstack/react-table`,
-  `jspdf`, `jspdf-autotable`.
+- (nothing — D3.1 complete; deploy to VPS next)
 
 ## Next up
 - Deploy D3.1 to VPS: `git pull && sudo docker compose up -d --build` (no migration needed — pure UI).

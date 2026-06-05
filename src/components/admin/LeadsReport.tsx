@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { KpiCard } from './KpiCard';
+import { DataTable, type DataTableColumn } from './DataTable';
 import type { ReportData, DayMetrics } from '@/lib/report';
 
 function formatIDR(amount: number): string {
@@ -57,33 +58,65 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
   const today = data.today;
   const series = data.series;
 
-  // Totals row
-  const totals = series.reduce<Omit<DayMetrics, 'date' | 'convRate' | 'convRateActive'> & { leads: number; purchase: number }>(
+  const totals = useMemo(() => series.reduce(
     (acc, d) => ({
       leads: acc.leads + d.leads,
       purchase: acc.purchase + d.purchase,
       revenue: acc.revenue + d.revenue,
-      active: 0,
       totalWa: acc.totalWa + d.totalWa,
       sukses: acc.sukses + d.sukses,
       failed: acc.failed + d.failed,
     }),
-    { leads: 0, purchase: 0, revenue: 0, active: 0, totalWa: 0, sukses: 0, failed: 0 }
-  );
-  const totalsConv = totals.leads > 0 ? (totals.purchase / totals.leads) * 100 : 0;
+    { leads: 0, purchase: 0, revenue: 0, totalWa: 0, sukses: 0, failed: 0 }
+  ), [series]);
+  const totalsConv = totals.leads > 0 ? (totals.purchase / totals.leads) : 0;
+
+  const columns: DataTableColumn<DayMetrics>[] = useMemo(() => [
+    { id: 'date', header: 'Tanggal', align: 'left', accessor: d => d.date },
+    { id: 'leads', header: 'Leads', accessor: d => d.leads },
+    { id: 'purchase', header: 'Purchase', accessor: d => d.purchase },
+    { id: 'convRate', header: 'Conv. Rate', accessor: d => d.convRate, cell: d => formatPct(d.convRate), exportValue: d => formatPct(d.convRate) },
+    { id: 'revenue', header: 'Revenue', accessor: d => d.revenue, cell: d => formatIDR(d.revenue), exportValue: d => formatIDR(d.revenue) },
+    { id: 'active', header: 'Active', accessor: () => 0, cell: () => <span style={{ color: '#94a3b8' }}>—</span>, exportValue: () => '—' },
+    { id: 'convRateActive', header: 'Conv. Rate Active', accessor: () => 0, cell: () => <span style={{ color: '#94a3b8' }}>—</span>, exportValue: () => '—' },
+    { id: 'totalWa', header: 'Total WA', accessor: d => d.totalWa },
+    { id: 'sukses', header: 'Sukses', accessor: d => d.sukses, cell: d => <span style={{ color: '#16a34a' }}>{d.sukses}</span> },
+    { id: 'failed', header: 'Failed', accessor: d => d.failed, cell: d => <span style={{ color: d.failed > 0 ? '#dc2626' : '#374151' }}>{d.failed}</span> },
+  ], []);
+
+  const totalCell: React.CSSProperties = { padding: '8px 12px', textAlign: 'right' };
+  const footerRow = series.length > 0 ? (
+    <tr style={{ background: '#eff6ff', fontWeight: 700, borderTop: '2px solid #bfdbfe' }}>
+      <td style={{ padding: '8px 12px' }}>TOTAL</td>
+      <td style={totalCell}>{totals.leads}</td>
+      <td style={totalCell}>{totals.purchase}</td>
+      <td style={totalCell}>{formatPct(totalsConv)}</td>
+      <td style={totalCell}>{formatIDR(totals.revenue)}</td>
+      <td style={{ ...totalCell, color: '#94a3b8' }}>—</td>
+      <td style={{ ...totalCell, color: '#94a3b8' }}>—</td>
+      <td style={totalCell}>{totals.totalWa}</td>
+      <td style={{ ...totalCell, color: '#16a34a' }}>{totals.sukses}</td>
+      <td style={{ ...totalCell, color: totals.failed > 0 ? '#dc2626' : '#374151' }}>{totals.failed}</td>
+    </tr>
+  ) : null;
 
   return (
     <div style={{ padding: '1.5rem' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Leads Report</h1>
+        <div>
+          <h1 style={{ fontSize: '1.35rem', fontWeight: 700, margin: 0 }}>Leads Report</h1>
+          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '2px 0 0' }}>
+            Ringkasan performa leads, penjualan, dan komunikasi WA
+          </p>
+        </div>
         <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Last updated: {lastUpdated}</span>
       </div>
 
       {/* Filter bar */}
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', marginBottom: '1.5rem', flexWrap: 'wrap', background: '#fff', padding: '0.85rem 1rem', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
         <div>
-          <label style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: 2 }}>Periode</label>
+          <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginBottom: 3 }}>Periode</label>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <input type="date" value={from} onChange={e => setFrom(e.target.value)}
               style={{ border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 8px', fontSize: '0.875rem' }} />
@@ -93,18 +126,18 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
           </div>
         </div>
         <div>
-          <label style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: 2 }}>Program</label>
+          <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginBottom: 3 }}>Program</label>
           <select disabled style={{ border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 8px', fontSize: '0.875rem', background: '#f8fafc', color: '#94a3b8' }}>
             <option>Diet90</option>
           </select>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignSelf: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={handleApply} disabled={loading}
-            style={{ padding: '5px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
-            Terapkan
+            style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+            {loading ? 'Memuat…' : 'Terapkan'}
           </button>
           <button onClick={handleReset} disabled={loading}
-            style={{ padding: '5px 16px', background: '#fff', color: '#374151', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: '0.875rem', cursor: 'pointer' }}>
+            style={{ padding: '6px 16px', background: '#fff', color: '#374151', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: '0.875rem', cursor: 'pointer' }}>
             Reset
           </button>
         </div>
@@ -116,71 +149,31 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
           Ringkasan Hari Ini (Real Time) — {todayWib()}
         </h2>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <KpiCard label="Leads" value={today.leads} sub="Total leads hari ini" />
-          <KpiCard label="Purchase" value={today.purchase} sub="Total purchase hari ini" />
-          <KpiCard label="Conversion Rate" value={formatPct(today.convRate)} sub="Leads → Purchase" />
-          <KpiCard label="Revenue" value={formatIDR(today.revenue)} sub="Total revenue hari ini" />
-          <KpiCard label="Active" value={0} sub="Total users aktif" stub />
-          <KpiCard label="Conversion Rate Active" value="0%" sub="Active (segera hadir)" stub />
+          <KpiCard label="Leads" value={today.leads} sub="Total leads hari ini" icon="👥" accent="#2563eb" />
+          <KpiCard label="Purchase" value={today.purchase} sub="Total purchase hari ini" icon="🛒" accent="#7c3aed" />
+          <KpiCard label="Conversion Rate" value={formatPct(today.convRate)} sub="Leads → Purchase" icon="📈" accent="#0ea5e9" />
+          <KpiCard label="Revenue" value={formatIDR(today.revenue)} sub="Total revenue hari ini" icon="💰" accent="#16a34a" />
+          <KpiCard label="Active" value={0} sub="Total users aktif" icon="🔥" stub />
+          <KpiCard label="Conv. Rate Active" value="0%" sub="Segera hadir (program)" icon="⚡" stub />
         </div>
       </div>
 
       {/* 14-day series table */}
       <div>
-        <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.75rem' }}>
+        <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.35rem' }}>
           Performa 14 Hari Terakhir (Data Hari Kemarin ke Belakang)
         </h2>
-        <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-            <thead>
-              <tr style={{ background: '#f8fafc' }}>
-                {['Tanggal', 'Leads', 'Purchase', 'Conv. Rate', 'Revenue', 'Active', 'Conv. Rate Active', 'Total WA', 'Sukses', 'Failed'].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Tanggal' ? 'left' : 'right', color: '#374151', fontWeight: 600, borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {series.length === 0 ? (
-                <tr><td colSpan={10} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Tidak ada data.</td></tr>
-              ) : (
-                series.map((d, i) => (
-                  <tr key={d.date} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                    <td style={{ padding: '7px 12px', color: '#374151' }}>{d.date}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>{d.leads}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>{d.purchase}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>{formatPct(d.convRate)}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>{formatIDR(d.revenue)}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', color: '#94a3b8' }}>—</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', color: '#94a3b8' }}>—</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right' }}>{d.totalWa}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', color: '#16a34a' }}>{d.sukses}</td>
-                    <td style={{ padding: '7px 12px', textAlign: 'right', color: d.failed > 0 ? '#dc2626' : '#374151' }}>{d.failed}</td>
-                  </tr>
-                ))
-              )}
-              {/* Totals row */}
-              {series.length > 0 && (
-                <tr style={{ background: '#eff6ff', fontWeight: 600, borderTop: '2px solid #bfdbfe' }}>
-                  <td style={{ padding: '7px 12px' }}>TOTAL</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right' }}>{totals.leads}</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right' }}>{totals.purchase}</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right' }}>{totalsConv.toFixed(2)}%</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right' }}>{formatIDR(totals.revenue)}</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right', color: '#94a3b8' }}>—</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right', color: '#94a3b8' }}>—</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right' }}>{totals.totalWa}</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right', color: '#16a34a' }}>{totals.sukses}</td>
-                  <td style={{ padding: '7px 12px', textAlign: 'right', color: totals.failed > 0 ? '#dc2626' : '#374151' }}>{totals.failed}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          {series.length > 0 && (
-            <div style={{ padding: '6px 12px', fontSize: '0.7rem', color: '#94a3b8', borderTop: '1px solid #e2e8f0' }}>
-              Menampilkan data {from} – {to}
-            </div>
-          )}
-        </div>
+        <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '0 0 0.75rem' }}>
+          Menampilkan data {from} – {to}
+        </p>
+        <DataTable
+          columns={columns}
+          rows={series}
+          pageSize={20}
+          exportFileName={`leads-report_${from}_${to}`}
+          exportTitle={`Leads Report ${from} – ${to}`}
+          footerRow={footerRow}
+        />
       </div>
     </div>
   );

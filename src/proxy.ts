@@ -3,7 +3,7 @@ import { ADMIN_SESSION_COOKIE } from '@/lib/cookie-names';
 
 const PUBLIC_PATHS = ['/admin/login'];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isAdminUI = pathname.startsWith('/admin');

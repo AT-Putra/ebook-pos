@@ -71,25 +71,26 @@ export async function getDayMetrics(dateStr: string): Promise<DayMetrics> {
   };
 }
 
-export function buildDateSeries(from: Date, to: Date): string[] {
+// Inclusive list of WIB date strings from `fromStr` to `toStr` (both YYYY-MM-DD).
+// Anchored on the +07:00 offset and stepped by whole days so the labels are
+// correct in WIB regardless of the server/container timezone (no setHours).
+export function buildDateSeries(fromStr: string, toStr: string): string[] {
   const dates: string[] = [];
-  const cur = new Date(from);
-  cur.setHours(0, 0, 0, 0);
-  while (cur <= to) {
+  let cur = new Date(`${fromStr}T00:00:00.000+07:00`);
+  const end = new Date(`${toStr}T00:00:00.000+07:00`);
+  while (cur <= end) {
     dates.push(toWibDateString(cur));
-    cur.setDate(cur.getDate() + 1);
+    cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
   }
-  return [...new Set(dates)]; // dedupe if WIB boundary causes repeats
+  return dates;
 }
 
 export async function getReport(fromStr: string, toStr: string): Promise<ReportData> {
   const todayStr = toWibDateString(new Date());
-  const from = new Date(`${fromStr}T00:00:00.000+07:00`);
-  const to = new Date(`${toStr}T23:59:59.999+07:00`);
 
   const [today, ...seriesDates] = await Promise.all([
     getDayMetrics(todayStr),
-    ...buildDateSeries(from, to).map(d => getDayMetrics(d)),
+    ...buildDateSeries(fromStr, toStr).map(d => getDayMetrics(d)),
   ]);
 
   return { today, series: seriesDates };

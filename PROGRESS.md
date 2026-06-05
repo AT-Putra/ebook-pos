@@ -96,6 +96,10 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — Fix: `buildDateSeries` used `cur.setHours()` (container UTC) → spurious leading day +
+  WIB date mislabel. Rewrote to step by whole days anchored on +07:00, taking string args. 83 tests.
+  (Diagnosed a "table shows all 0" report — it was correct: all test data was from today, and the
+  14-day table is "yesterday and back" per the mockup; today's data shows in the real-time cards.)
 - 2026-06-05 — D3.1 specced (PRD v0.7.1, §20.8): dashboard UX polish — restyled KPI widgets +
   reusable TanStack `DataTable` (sort/search/paginate) with CSV + PDF export. Decision: TanStack Table
   + jspdf/jspdf-autotable (jQuery DataTables rejected). Docs updated across PRD/CLAUDE/PROGRESS before

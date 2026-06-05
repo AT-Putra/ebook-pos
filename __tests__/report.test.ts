@@ -1,26 +1,23 @@
 import { buildDateSeries } from '@/lib/report';
 
 describe('buildDateSeries', () => {
-  it('returns a single date when from == to', () => {
-    const from = new Date('2026-06-01T00:00:00+07:00');
-    const to = new Date('2026-06-01T23:59:59+07:00');
-    const result = buildDateSeries(from, to);
-    expect(result).toEqual(['2026-06-01']);
+  it('returns a single date when from == to (no spurious extra day)', () => {
+    expect(buildDateSeries('2026-06-01', '2026-06-01')).toEqual(['2026-06-01']);
   });
 
-  it('returns 14 dates for a 14-day range', () => {
-    const from = new Date('2026-05-19T00:00:00+07:00');
-    const to = new Date('2026-06-01T00:00:00+07:00');
-    const result = buildDateSeries(from, to);
+  it('returns 14 consecutive WIB dates for a 14-day range', () => {
+    const result = buildDateSeries('2026-05-19', '2026-06-01');
     expect(result).toHaveLength(14);
     expect(result[0]).toBe('2026-05-19');
     expect(result[13]).toBe('2026-06-01');
   });
 
+  it('crosses a month boundary correctly', () => {
+    const result = buildDateSeries('2026-05-30', '2026-06-02');
+    expect(result).toEqual(['2026-05-30', '2026-05-31', '2026-06-01', '2026-06-02']);
+  });
+
   it('returns empty array when from > to', () => {
-    const from = new Date('2026-06-05T00:00:00+07:00');
-    const to = new Date('2026-06-01T00:00:00+07:00');
-    const result = buildDateSeries(from, to);
-    expect(result).toHaveLength(0);
+    expect(buildDateSeries('2026-06-05', '2026-06-01')).toHaveLength(0);
   });
 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { COOKIE_NAME } from '@/lib/session';
+import { ADMIN_SESSION_COOKIE } from '@/lib/cookie-names';
 
 const PUBLIC_PATHS = ['/admin/login'];
 
@@ -12,7 +12,7 @@ export function middleware(req: NextRequest) {
   if (!isAdminUI && !isAdminApi) return NextResponse.next();
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
 
-  const token = req.cookies.get(COOKIE_NAME)?.value;
+  const token = req.cookies.get(ADMIN_SESSION_COOKIE)?.value;
 
   if (!token) {
     if (pathname.startsWith('/api/')) {

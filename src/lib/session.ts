@@ -1,15 +1,14 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { db } from './db';
 import type { AdminUser } from '@prisma/client';
+import { ADMIN_SESSION_COOKIE } from './cookie-names';
 
-const COOKIE_NAME = 'admin_session';
+export const COOKIE_NAME = ADMIN_SESSION_COOKIE;
 const SESSION_DAYS = 7;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
-
-export { COOKIE_NAME };
 
 export async function createSession(userId: string): Promise<string> {
   const token = randomBytes(32).toString('hex');

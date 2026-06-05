@@ -60,6 +60,11 @@ done, idempotent, and recoverable.
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·
 `deny` → FAILED · `cancel` → CANCELLED · `expire` → EXPIRED · `refund`/`partial_refund` → REFUNDED.
 Delivery happens ONLY on PAID.
+**Transitions** (`lib/orders.ts` `canTransition`): explicit allow-map, NOT a linear rank. PENDING→any
+final; **PAID→REFUNDED only** (never overwritten by a late failure); failure/refund states terminal;
+same→same is a no-op. **Delivery** (`lib/delivery.ts`): `attemptDelivery` atomically claims
+`PENDING/FAILED→PROCESSING` (no double-send); cron reclaims stale `PROCESSING` (>10 min); backoff
+`[1,5,15,60,360]` min, first retry at 1 min.
 
 ## Build order (vertical slices — see PRD §19.3)
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →

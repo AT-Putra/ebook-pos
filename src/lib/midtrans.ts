@@ -81,7 +81,11 @@ export function verifySignature(params: {
     .createHash('sha512')
     .update(params.orderId + params.statusCode + params.grossAmount + env.MIDTRANS_SERVER_KEY)
     .digest('hex');
-  return expected === params.signatureKey;
+  // Constant-time compare to avoid leaking signature bytes via timing.
+  const a = Buffer.from(expected, 'hex');
+  const b = Buffer.from(params.signatureKey, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 /** Maps Midtrans transaction_status + fraud_status → OrderStatus. */

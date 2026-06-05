@@ -6,9 +6,15 @@ import { toChatId } from './phone';
 
 export const BACKOFF_MINUTES = [1, 5, 15, 60, 360]; // exponential backoff schedule
 
-function nextRetryAt(attempts: number): Date | null {
-  const minutes = BACKOFF_MINUTES[attempts];
-  if (minutes === undefined) return null; // maxAttempts reached
+// How long a delivery may sit in PROCESSING before it's considered orphaned
+// (e.g. the process crashed mid-send) and reclaimed for retry by the cron.
+const STALE_PROCESSING_MINUTES = 10;
+
+/** Delay before the next retry, given how many attempts have now been made.
+ *  attemptsSoFar=1 → first retry uses BACKOFF_MINUTES[0]. */
+function nextRetryAt(attemptsSoFar: number): Date | null {
+  const minutes = BACKOFF_MINUTES[attemptsSoFar - 1];
+  if (minutes === undefined) return null; // schedule exhausted
   const d = new Date();
   d.setMinutes(d.getMinutes() + minutes);
   return d;
@@ -16,11 +22,19 @@ function nextRetryAt(attempts: number): Date | null {
 
 /**
  * Attempts to send an e-book delivery.
- * Idempotent: skips if already SENT or PROCESSING.
- * Updates Delivery row with result.
+ * Exactly-once: atomically claims the row (PENDING/FAILED → PROCESSING) so two
+ * concurrent callers can't both send. A SENT or already-PROCESSING row is skipped.
  */
 export async function attemptDelivery(deliveryId: string): Promise<void> {
-  // Fetch delivery + order + customer + product in one query.
+  // Atomic claim — only one caller can move PENDING/FAILED → PROCESSING.
+  // Replaces the previous read-then-write check, which had a TOCTOU race that
+  // could let duplicate webhooks double-send the e-book (invariant #3).
+  const claim = await db.delivery.updateMany({
+    where: { id: deliveryId, status: { in: [DeliveryStatus.PENDING, DeliveryStatus.FAILED] } },
+    data: { status: DeliveryStatus.PROCESSING },
+  });
+  if (claim.count === 0) return; // already SENT/PROCESSING, or row not found
+
   const delivery = await db.delivery.findUniqueOrThrow({
     where: { id: deliveryId },
     include: {
@@ -31,18 +45,6 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
         },
       },
     },
-  });
-
-  // Exactly-once guard: never re-send if already SENT.
-  if (delivery.status === DeliveryStatus.SENT) return;
-
-  // Skip if another worker is already processing this delivery.
-  if (delivery.status === DeliveryStatus.PROCESSING) return;
-
-  // Mark as PROCESSING to prevent concurrent sends.
-  await db.delivery.update({
-    where: { id: deliveryId },
-    data: { status: DeliveryStatus.PROCESSING },
   });
 
   const { order } = delivery;
@@ -102,6 +104,14 @@ export async function processDueDeliveries(): Promise<{
   failed: number;
 }> {
   const now = new Date();
+
+  // Reclaim deliveries orphaned in PROCESSING (e.g. the process crashed mid-send):
+  // the atomic claim only moves PENDING/FAILED, so without this they'd never retry.
+  const staleBefore = new Date(now.getTime() - STALE_PROCESSING_MINUTES * 60_000);
+  await db.delivery.updateMany({
+    where: { status: DeliveryStatus.PROCESSING, updatedAt: { lt: staleBefore } },
+    data: { status: DeliveryStatus.PENDING },
+  });
 
   // Prisma can't compare two columns in one filter; fetch candidates then filter in JS.
   const candidates = await db.delivery.findMany({

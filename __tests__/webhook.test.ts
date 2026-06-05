@@ -54,8 +54,10 @@ describe('F3 webhook invariants', () => {
   });
 
   describe('idempotent forward-only status (F3 invariant #2)', () => {
-    it('settlement after settlement is a no-op (canTransition same→same)', () => {
-      expect(canTransition(OrderStatus.PAID, OrderStatus.PAID)).toBe(true);
+    it('settlement after settlement is a no-op (same→same is not a transition)', () => {
+      // canTransition returns false so advanceOrderStatus is a true no-op and
+      // does not re-write the row (which would reset paidAt and shift metrics).
+      expect(canTransition(OrderStatus.PAID, OrderStatus.PAID)).toBe(false);
     });
 
     it('late pending after settlement is blocked', () => {

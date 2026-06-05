@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.2 |
+| Version | 0.7.3 |
 | Status | Core flow + dashboard (D1–D3 + D3.1) built & deployed |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-05 |
@@ -14,6 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.3** (2026-06-05) — Second bug-fix pass (state machine + delivery): (1) `canTransition` rewritten as an explicit allowed-transition map — a **PAID order can no longer be overwritten** by a late `FAILED`/`EXPIRED`/`CANCELLED` (only `PAID → REFUNDED`); failure/refund states are terminal. (2) Same→same is now a true **no-op** (duplicate `settlement` no longer re-writes `paidAt`). (3) `attemptDelivery` now **atomically claims** the row (`PENDING/FAILED → PROCESSING` via `updateMany`), closing a double-send race (invariant #3). (4) `processDueDeliveries` **reclaims stale `PROCESSING`** rows (orphaned by a crash, >10 min) so they retry. (5) Backoff off-by-one fixed — first retry is 1 min again. (6) `orderCode` uses crypto randomness + collision retry. (7) webhook signature compare is constant-time.
 - **0.7.2** (2026-06-05) — Bug-fix pass: (1) the proxy now guards **only** `/admin/*` UI pages; `/api/admin/*` routes **self-authenticate** via a shared `requireAdmin()` accepting a session cookie **or** the `ADMIN_TOKEN` bearer (previously the proxy's cookie-only gate blocked bearer/machine callers and left orders/resend unreachable). (2) `Sukses` is now bucketed by `sentAt` per §20.4 (was `updatedAt`). (3) `/api/admin/report` caps the range at 366 days. (4) `admin:create` masks the password input. §20.3/§20.5 updated.
 - **0.7.1** (2026-06-05) — Added **§20.8 Dashboard UX polish + DataTable (slice D3.1)**: restyled KPI widgets and a reusable sortable/searchable/paginated table on **TanStack Table** with **CSV + PDF export**. New deps: `@tanstack/react-table`, `jspdf`, `jspdf-autotable`. Recorded in §6 tech stack, §19.3 build order, §20.6 acceptance. D1–D3 marked built/deployed.
 - **0.7.0** (2026-06-05) — Added **§20 Operator Dashboard / CMS** (multi-user login + Leads Report) per the mockup at `docs/mockups/cms.png`. Resolved dashboard decisions (Lead = any checkout submission; Purchase = PAID order; Active/Program tied to the deferred Challenge module and stubbed for now; multi-user username+password auth). Added `AdminUser` + `Session` to §9, admin UI routes to §10, dashboard slices (D1–D3) to §19.3.
@@ -556,8 +557,11 @@ before delivering, since frontend callbacks are user-modifiable.
 |---|---|
 | Duplicate notification | Idempotent: recorded as event, no duplicate state change, no re-send |
 | Late `pending` after `settlement` | Ignored (forward-only) |
-| `deny` / `expire` / `cancel` | Order set to FAILED/EXPIRED/CANCELLED; **no delivery** |
+| Late `deny`/`expire`/`cancel` after `PAID` | **Ignored** — a PAID order only transitions to `REFUNDED`; never overwritten by a failure state |
+| `deny` / `expire` / `cancel` (from PENDING) | Order set to FAILED/EXPIRED/CANCELLED; **no delivery** |
 | `capture` + `challenge` | Order stays PENDING; no delivery until resolved |
+| Delivery orphaned in `PROCESSING` (crash mid-send) | Reclaimed by the retry worker after 10 min (→ PENDING) and retried |
+| Concurrent duplicate webhooks | Delivery row is claimed atomically (`PENDING/FAILED → PROCESSING`); only one send occurs |
 | Refund after delivery | Order → REFUNDED; file already sent (cannot recall) — operator note |
 | Invalid WhatsApp number | Rejected at checkout (`422`); if discovered at send time → delivery FAILED + operator alert + manual resend with corrected number |
 | WAHA session down | Send fails → retried by cron; operator alerted; resumes when the number is re-linked in the provider dashboard |

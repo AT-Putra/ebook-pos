@@ -26,16 +26,24 @@ describe('canTransition (forward-only status)', () => {
     expect(canTransition(OrderStatus.PAID, OrderStatus.PENDING)).toBe(false);
   });
 
-  it('allows same status → same status (idempotent)', () => {
-    expect(canTransition(OrderStatus.PAID, OrderStatus.PAID)).toBe(true);
-    expect(canTransition(OrderStatus.PENDING, OrderStatus.PENDING)).toBe(true);
+  it('treats same status → same status as a no-op (not a transition)', () => {
+    expect(canTransition(OrderStatus.PAID, OrderStatus.PAID)).toBe(false);
+    expect(canTransition(OrderStatus.PENDING, OrderStatus.PENDING)).toBe(false);
   });
 
   it('allows PAID → REFUNDED', () => {
     expect(canTransition(OrderStatus.PAID, OrderStatus.REFUNDED)).toBe(true);
   });
 
-  it('blocks EXPIRED → PAID', () => {
+  it('blocks PAID being overwritten by a late failure notification', () => {
+    expect(canTransition(OrderStatus.PAID, OrderStatus.EXPIRED)).toBe(false);
+    expect(canTransition(OrderStatus.PAID, OrderStatus.FAILED)).toBe(false);
+    expect(canTransition(OrderStatus.PAID, OrderStatus.CANCELLED)).toBe(false);
+  });
+
+  it('keeps terminal states terminal', () => {
     expect(canTransition(OrderStatus.EXPIRED, OrderStatus.PAID)).toBe(false);
+    expect(canTransition(OrderStatus.FAILED, OrderStatus.PAID)).toBe(false);
+    expect(canTransition(OrderStatus.REFUNDED, OrderStatus.PAID)).toBe(false);
   });
 });

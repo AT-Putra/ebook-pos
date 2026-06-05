@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OrderStatus } from '@prisma/client';
 import { checkoutSchema } from '@/lib/validation';
 import { db } from '@/lib/db';
-import { generateOrderCode } from '@/lib/orders';
+import { createPendingOrder } from '@/lib/orders';
 import { createSnapTransaction } from '@/lib/midtrans';
 import { toChatId } from '@/lib/phone';
 
@@ -40,18 +40,14 @@ export async function POST(req: NextRequest) {
     create: { name, email, whatsapp },
   });
 
-  // 4. Create order (PENDING).
-  const orderCode = generateOrderCode();
-  const order = await db.order.create({
-    data: {
-      orderCode,
-      customerId: customer.id,
-      productId: product.id,
-      amountIdr: product.priceIdr,
-      trackingId: trackingId ?? null,
-      status: OrderStatus.PENDING,
-    },
+  // 4. Create order (PENDING) — retries on the improbable orderCode collision.
+  const order = await createPendingOrder({
+    customerId: customer.id,
+    productId: product.id,
+    amountIdr: product.priceIdr,
+    trackingId: trackingId ?? null,
   });
+  const orderCode = order.orderCode;
 
   // 5. Create Midtrans Snap transaction.
   // On failure: mark order FAILED (keeps audit trail) and return 502.

@@ -96,6 +96,13 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — Second bug-fix pass (PRD 0.7.3), deeper review of core flow: (1) `canTransition`
+  rewritten as explicit allow-map — PAID can no longer be overwritten by a late FAILED/EXPIRED/CANCELLED
+  (only PAID→REFUNDED); (2) same→same is a true no-op (duplicate settlement won't reset paidAt);
+  (3) `attemptDelivery` atomically claims PENDING/FAILED→PROCESSING (fixes double-send race, invariant #3);
+  (4) `processDueDeliveries` reclaims stale PROCESSING (>10 min) orphaned by a crash; (5) backoff
+  off-by-one fixed (first retry 1 min); (6) `orderCode` crypto-random + collision-retry (`createPendingOrder`);
+  (7) webhook signature compare is constant-time. 84 tests; tsc + build clean.
 - 2026-06-05 — Bug-fix pass (PRD 0.7.2) after a full review: (1) **proxy** no longer gates
   `/api/admin/*` (cookie-only gate had blocked `ADMIN_TOKEN` bearer callers and left orders/resend
   unreachable); added shared `requireAdmin(req)` (cookie OR bearer) used by report/orders/resend;

@@ -1,0 +1,96 @@
+import { db } from './db';
+
+export type DayMetrics = {
+  date: string;       // YYYY-MM-DD in WIB
+  leads: number;
+  purchase: number;
+  convRate: number;   // 0–1, two decimal places max
+  revenue: number;    // IDR integer
+  active: number;     // stub — 0 until Challenge module
+  convRateActive: number; // stub — 0
+  totalWa: number;
+  sukses: number;
+  failed: number;
+};
+
+export type ReportData = {
+  today: DayMetrics;
+  series: DayMetrics[];
+};
+
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000; // UTC+7
+
+function toWibDateString(date: Date): string {
+  const wib = new Date(date.getTime() + WIB_OFFSET_MS);
+  return wib.toISOString().slice(0, 10);
+}
+
+function wibDayBounds(dateStr: string): { start: Date; end: Date } {
+  const start = new Date(`${dateStr}T00:00:00.000+07:00`);
+  const end = new Date(`${dateStr}T23:59:59.999+07:00`);
+  return { start, end };
+}
+
+function rate(numerator: number, denominator: number): number {
+  if (denominator === 0) return 0;
+  return Math.round((numerator / denominator) * 10000) / 10000; // 4 decimal precision
+}
+
+export async function getDayMetrics(dateStr: string): Promise<DayMetrics> {
+  const { start, end } = wibDayBounds(dateStr);
+
+  const [leads, purchases, deliveries] = await Promise.all([
+    db.order.count({ where: { createdAt: { gte: start, lte: end } } }),
+    db.order.aggregate({
+      where: { status: 'PAID', paidAt: { gte: start, lte: end } },
+      _count: { _all: true },
+      _sum: { amountIdr: true },
+    }),
+    db.delivery.findMany({
+      where: { updatedAt: { gte: start, lte: end }, status: { in: ['SENT', 'FAILED'] } },
+      select: { status: true },
+    }),
+  ]);
+
+  const purchase = purchases._count._all;
+  const revenue = purchases._sum.amountIdr ?? 0;
+  const sukses = deliveries.filter(d => d.status === 'SENT').length;
+  const failed = deliveries.filter(d => d.status === 'FAILED').length;
+
+  return {
+    date: dateStr,
+    leads,
+    purchase,
+    convRate: rate(purchase, leads),
+    revenue,
+    active: 0,
+    convRateActive: 0,
+    totalWa: sukses + failed,
+    sukses,
+    failed,
+  };
+}
+
+export function buildDateSeries(from: Date, to: Date): string[] {
+  const dates: string[] = [];
+  const cur = new Date(from);
+  cur.setHours(0, 0, 0, 0);
+  while (cur <= to) {
+    dates.push(toWibDateString(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return [...new Set(dates)]; // dedupe if WIB boundary causes repeats
+}
+
+export async function getReport(fromStr: string, toStr: string): Promise<ReportData> {
+  const todayStr = toWibDateString(new Date());
+  const from = new Date(`${fromStr}T00:00:00.000+07:00`);
+  const to = new Date(`${toStr}T23:59:59.999+07:00`);
+
+  const [today, ...seriesDates] = await Promise.all([
+    getDayMetrics(todayStr),
+    ...buildDateSeries(from, to).map(d => getDayMetrics(d)),
+  ]);
+
+  return { today, series: seriesDates };
+}

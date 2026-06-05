@@ -24,11 +24,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Prisma CLI + schema + seed needed for `prisma migrate deploy` and `prisma db seed`
-# Copy package.json so Prisma can find the seed command
+# Prisma CLI + schema + seed needed for migrate deploy and db seed at deploy time.
+# node_modules/.bin/prisma is a symlink; Docker dereferences it, breaking __dirname.
+# Invoke node_modules/prisma/build/index.js directly so __dirname stays correct
+# and the WASM files in prisma/build/ are found.
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 

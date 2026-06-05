@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { isAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { DeliveryStatus } from '@prisma/client';
 import { normalizeIndonesianPhone, PhoneNormalizationError } from '@/lib/phone';
@@ -15,7 +15,7 @@ type Props = {
 };
 
 export async function POST(req: NextRequest, { params }: Props) {
-  if (!isAdmin(req)) {
+  if (!(await requireAdmin(req))) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
 

@@ -39,23 +39,21 @@ function rate(numerator: number, denominator: number): number {
 export async function getDayMetrics(dateStr: string): Promise<DayMetrics> {
   const { start, end } = wibDayBounds(dateStr);
 
-  const [leads, purchases, deliveries] = await Promise.all([
+  const [leads, purchases, sukses, failed] = await Promise.all([
     db.order.count({ where: { createdAt: { gte: start, lte: end } } }),
     db.order.aggregate({
       where: { status: 'PAID', paidAt: { gte: start, lte: end } },
       _count: { _all: true },
       _sum: { amountIdr: true },
     }),
-    db.delivery.findMany({
-      where: { updatedAt: { gte: start, lte: end }, status: { in: ['SENT', 'FAILED'] } },
-      select: { status: true },
-    }),
+    // Sukses: bucket by sentAt (when the e-book was actually delivered).
+    db.delivery.count({ where: { status: 'SENT', sentAt: { gte: start, lte: end } } }),
+    // Failed: terminal failures, bucketed by updatedAt (no sentAt on a failure).
+    db.delivery.count({ where: { status: 'FAILED', updatedAt: { gte: start, lte: end } } }),
   ]);
 
   const purchase = purchases._count._all;
   const revenue = purchases._sum.amountIdr ?? 0;
-  const sukses = deliveries.filter(d => d.status === 'SENT').length;
-  const failed = deliveries.filter(d => d.status === 'FAILED').length;
 
   return {
     date: dateStr,

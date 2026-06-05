@@ -76,8 +76,12 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - **Active / Conv.Rate Active / Program** belong to the DEFERRED Challenge module — render per mockup
   but STUB them (`0` / `—`). Do NOT fabricate data or build the challenge module now.
 - Auth: multi-user username+password, scrypt via `node:crypto`, DB-backed `Session` (HTTP-only cookie).
-  First account via `npm run admin:create`. Never commit a default password. `ADMIN_TOKEN` still works
-  for machine/API callers. Put metric math in pure functions in `lib/report.ts` (unit-tested, no DB).
+  First account via `npm run admin:create`. Never commit a default password. Put metric math in pure
+  functions in `lib/report.ts` (unit-tested, no DB).
+- **Auth gating:** `src/proxy.ts` guards ONLY the `/admin/*` UI pages (redirect to login). Every
+  `/api/admin/*` route self-authenticates with `requireAdmin(req)` from `lib/auth.ts` — accepts a
+  valid session cookie OR the `ADMIN_TOKEN` bearer. Do NOT gate `/api/admin/*` in the proxy (that
+  blocks bearer/machine callers). `/api/cron/*` uses `isCron`, not requireAdmin.
 - Tables use the reusable `DataTable` (TanStack Table) — sort by raw value (dates/numbers, not strings),
   global search, pagination; CSV via `Blob`, PDF via `jspdf-autotable`. Export reflects the current view.
   TOTAL row renders in the table footer (outside the paged/sorted body). jQuery DataTables is banned (fights React).

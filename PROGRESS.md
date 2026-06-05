@@ -96,6 +96,12 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — Bug-fix pass (PRD 0.7.2) after a full review: (1) **proxy** no longer gates
+  `/api/admin/*` (cookie-only gate had blocked `ADMIN_TOKEN` bearer callers and left orders/resend
+  unreachable); added shared `requireAdmin(req)` (cookie OR bearer) used by report/orders/resend;
+  proxy now guards only `/admin/*` UI. (2) `Sukses` metric bucketed by `sentAt` (was `updatedAt`),
+  matching §20.4. (3) `/api/admin/report` caps range at 366 days. (4) `admin:create` masks password
+  input. 83 tests green; tsc + build clean.
 - 2026-06-05 — D3.1 visual polish to match `docs/mockups/cms.png`: dark navy gradient sidebar with
   icon nav + active blue pill + "soon" badges on unbuilt pages; redesigned user block (avatar + name +
   @username + logout); KPI cards now icon-tile-left; uppercase section labels; right-aligned filter

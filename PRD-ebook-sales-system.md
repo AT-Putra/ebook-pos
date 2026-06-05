@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.1 |
-| Status | Core flow + dashboard (D1–D3) built & deployed; dashboard UX polish (D3.1) specced |
+| Version | 0.7.2 |
+| Status | Core flow + dashboard (D1–D3 + D3.1) built & deployed |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-05 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.2** (2026-06-05) — Bug-fix pass: (1) the proxy now guards **only** `/admin/*` UI pages; `/api/admin/*` routes **self-authenticate** via a shared `requireAdmin()` accepting a session cookie **or** the `ADMIN_TOKEN` bearer (previously the proxy's cookie-only gate blocked bearer/machine callers and left orders/resend unreachable). (2) `Sukses` is now bucketed by `sentAt` per §20.4 (was `updatedAt`). (3) `/api/admin/report` caps the range at 366 days. (4) `admin:create` masks the password input. §20.3/§20.5 updated.
 - **0.7.1** (2026-06-05) — Added **§20.8 Dashboard UX polish + DataTable (slice D3.1)**: restyled KPI widgets and a reusable sortable/searchable/paginated table on **TanStack Table** with **CSV + PDF export**. New deps: `@tanstack/react-table`, `jspdf`, `jspdf-autotable`. Recorded in §6 tech stack, §19.3 build order, §20.6 acceptance. D1–D3 marked built/deployed.
 - **0.7.0** (2026-06-05) — Added **§20 Operator Dashboard / CMS** (multi-user login + Leads Report) per the mockup at `docs/mockups/cms.png`. Resolved dashboard decisions (Lead = any checkout submission; Purchase = PAID order; Active/Program tied to the deferred Challenge module and stubbed for now; multi-user username+password auth). Added `AdminUser` + `Session` to §9, admin UI routes to §10, dashboard slices (D1–D3) to §19.3.
 - **0.6.1** (2026-06-05) — Stack upgrade folded into the spec: **Next.js 16, Prisma 7 (+`@prisma/adapter-pg`), Zod 4, TypeScript 6, Node 22, PostgreSQL 17, ESLint 10.** Prisma 7 moves the datasource `url` out of `schema.prisma` into `prisma.config.js` and requires a driver adapter on `PrismaClient`; `prisma db seed` removed (seed runs as `node prisma/seed.mjs`). §6/§9 updated accordingly.
@@ -824,9 +825,12 @@ module is **additive** — it must not change the buyer-facing flow or any §1�
   **HTTP-only, Secure, SameSite=Lax** cookie named `admin_session`. Store only `sha256(token)` in the
   `Session` table with a `userId` and `expiresAt` (default **7 days**). On each request, hash the
   cookie token and look it up; reject if missing/expired. Logout deletes the row and clears the cookie.
-- **Gate:** `src/middleware.ts` redirects unauthenticated `/admin/*` (except `/admin/login`) to the
-  login page; `/api/admin/*` returns `401`. The existing `ADMIN_TOKEN` bearer continues to work for
-  machine/API callers (cron, scripts) alongside session auth.
+- **Gate:** `src/proxy.ts` (Next 16 renamed middleware→proxy; export the fn as `proxy`) guards **only
+  the `/admin/*` UI pages** — no session cookie ⇒ redirect to `/admin/login`. It does **not** gate
+  `/api/admin/*`; each API route self-authenticates with the shared **`requireAdmin(req)`** helper
+  (`src/lib/auth.ts`), which accepts **either** a valid session cookie **or** the `ADMIN_TOKEN` bearer.
+  This keeps machine/curl/cron callers (bearer) and the dashboard (cookie) both working. (Gating
+  `/api/admin/*` in the proxy on the cookie alone previously 401'd bearer callers — see changelog 0.7.2.)
 - **First account:** `npm run admin:create` (`scripts/create-admin.mjs`) prompts for username + name +
   password (or reads env), hashes, and inserts an `AdminUser`. **No default password is ever committed.**
 - **Login hardening:** generic error on bad credentials (don't reveal which field); basic rate-limit /
@@ -867,7 +871,8 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
 **API:**
 - `POST /api/admin/auth/login` — body `{ username, password }` → sets `admin_session` cookie; `200`/`401`.
 - `POST /api/admin/auth/logout` — clears cookie + deletes session; `200`.
-- `GET /api/admin/report?from=YYYY-MM-DD&to=YYYY-MM-DD` — auth-gated. Returns:
+- `GET /api/admin/report?from=YYYY-MM-DD&to=YYYY-MM-DD` — `requireAdmin` (cookie or bearer). Range
+  capped at **366 days** (`400` otherwise). Returns:
   ```json
   {
     "today": { "date": "2026-06-01", "leads": 250, "purchase": 38, "convRate": 0.152,

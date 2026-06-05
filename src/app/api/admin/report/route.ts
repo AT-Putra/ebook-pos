@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { cookies } from 'next/headers';
-import { validateSession } from '@/lib/session';
-import { COOKIE_NAME } from '@/lib/session';
-import { isAdmin } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth';
 import { getReport } from '@/lib/report';
 
 const querySchema = z.object({
@@ -11,17 +8,10 @@ const querySchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
-async function isAuthenticated(req: NextRequest): Promise<boolean> {
-  if (isAdmin(req)) return true;
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) return false;
-  const user = await validateSession(token);
-  return user !== null;
-}
+const MAX_RANGE_DAYS = 366;
 
 export async function GET(req: NextRequest) {
-  if (!(await isAuthenticated(req))) {
+  if (!(await requireAdmin(req))) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
 
@@ -34,6 +24,18 @@ export async function GET(req: NextRequest) {
   const { from, to } = parsed.data;
   if (from > to) {
     return NextResponse.json({ error: 'from harus sebelum atau sama dengan to.' }, { status: 400 });
+  }
+
+  const days =
+    Math.round(
+      (new Date(`${to}T00:00:00+07:00`).getTime() - new Date(`${from}T00:00:00+07:00`).getTime()) /
+        86_400_000,
+    ) + 1;
+  if (days > MAX_RANGE_DAYS) {
+    return NextResponse.json(
+      { error: `Rentang tanggal maksimal ${MAX_RANGE_DAYS} hari.` },
+      { status: 400 },
+    );
   }
 
   const data = await getReport(from, to);

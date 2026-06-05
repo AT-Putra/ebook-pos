@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.5 |
-| Status | Core flow + dashboard (D1–D3 + D3.1) + CORS (D8) + checkout rate limit (D9) built & deployed |
+| Version | 0.7.6 |
+| Status | Core flow + dashboard (D1–D3, D3.1) + CORS (D8) + rate limit (D9), responsive, built & deployed |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-05 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.6** (2026-06-05) — Dashboard made **responsive**: new `DashboardShell` wraps the sidebar + content; on ≤768px the sidebar collapses into an off-canvas drawer with a sticky top bar + hamburger (overlay to dismiss). Sidebar CSS consolidated into the shell's `<style>` block. Login card and the Pengaturan tables made mobile-friendly (fluid width / horizontal scroll). KPI cards and DataTable already wrapped/scrolled.
 - **0.7.5** (2026-06-05) — Added **§20.10 Checkout rate limit (slice D9)**: per-IP fixed-window limit on `/api/checkout`, **configurable and disableable** from the Pengaturan menu. New `RateLimitConfig` singleton table; `lib/rate-limit.ts` (in-memory per-IP buckets + cached config); `/api/checkout` returns `429` + `Retry-After` when exceeded; admin config at `GET/PUT /api/admin/rate-limit`.
 - **0.7.4** (2026-06-05) — Added **§20.9 CORS domain allowlist (slice D8)** so external landing pages on other domains can POST to `/api/checkout` from the browser. New `AllowedOrigin` table; `/api/checkout` gains an `OPTIONS` preflight + per-response `Access-Control-Allow-Origin` echoed only for whitelisted (or same-app) origins; admin CRUD at `/api/admin/origins`; managed from the **Pengaturan** dashboard page. CORS is checked **live** against the DB (no restart needed).
 - **0.7.3** (2026-06-05) — Second bug-fix pass (state machine + delivery): (1) `canTransition` rewritten as an explicit allowed-transition map — a **PAID order can no longer be overwritten** by a late `FAILED`/`EXPIRED`/`CANCELLED` (only `PAID → REFUNDED`); failure/refund states are terminal. (2) Same→same is now a true **no-op** (duplicate `settlement` no longer re-writes `paidAt`). (3) `attemptDelivery` now **atomically claims** the row (`PENDING/FAILED → PROCESSING` via `updateMany`), closing a double-send race (invariant #3). (4) `processDueDeliveries` **reclaims stale `PROCESSING`** rows (orphaned by a crash, >10 min) so they retry. (5) Backoff off-by-one fixed — first retry is 1 min again. (6) `orderCode` uses crypto randomness + collision retry. (7) webhook signature compare is constant-time.
@@ -971,6 +972,11 @@ greyed/`—`. No layout regressions vs. the mockup (`docs/mockups/cms.png`).
 **Applied to the Leads Report.** The 14-day series renders through `DataTable`; the TOTAL row stays
 (rendered outside the paginated body, e.g. a table footer, so it isn't sorted/paged away). The KPI
 cards and filter bar from D3 are unchanged in behavior.
+
+**Responsive shell (0.7.6).** `DashboardShell` (`src/components/admin/DashboardShell.tsx`, client) owns
+the responsive frame + all sidebar CSS. Desktop: fixed 232px sidebar + content. ≤768px: sidebar becomes
+an off-canvas drawer (sticky top bar + hamburger + dismiss overlay); `Sidebar` takes `open`/`onNavigate`
+(nav clicks close the drawer). Tables scroll horizontally; KPI cards wrap; the login card is fluid.
 
 **Out of scope for D3.1:** server-side pagination (volume is low — all client-side), column show/hide,
 saved views. The broader cross-dataset **Laporan** export page remains **D7**.

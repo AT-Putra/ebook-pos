@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { validateSession, COOKIE_NAME } from '@/lib/session';
-import { Sidebar } from '@/components/admin/Sidebar';
+import { DashboardShell } from '@/components/admin/DashboardShell';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
@@ -12,9 +12,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user) redirect('/admin/login');
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#f1f5f9', fontFamily: 'system-ui, sans-serif' }}>
-      <Sidebar userName={user.name} userUsername={user.username} />
-      <main style={{ flex: 1, overflow: 'auto' }}>{children}</main>
-    </div>
+    <DashboardShell userName={user.name} userUsername={user.username}>
+      {children}
+    </DashboardShell>
   );
 }

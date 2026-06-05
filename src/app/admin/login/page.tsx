@@ -36,8 +36,8 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
-      <div style={{ background: '#fff', padding: '2rem', borderRadius: 8, width: 360, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', padding: 16, boxSizing: 'border-box' }}>
+      <div style={{ background: '#fff', padding: '2rem', borderRadius: 8, width: '100%', maxWidth: 360, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', boxSizing: 'border-box' }}>
         <h1 style={{ marginBottom: '1.5rem', fontSize: '1.25rem', fontWeight: 700 }}>Masuk — Dashboard</h1>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '1rem' }}>

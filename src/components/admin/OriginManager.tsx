@@ -102,7 +102,8 @@ export function OriginManager() {
         ) : origins.length === 0 ? (
           <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Belum ada domain. Tambahkan di atas.</p>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+          <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: 480 }}>
             <thead>
               <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
                 <th style={{ padding: '8px 10px' }}>Origin</th>
@@ -129,6 +130,7 @@ export function OriginManager() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

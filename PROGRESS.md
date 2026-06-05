@@ -98,6 +98,10 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — Responsive dashboard (PRD 0.7.6): new `DashboardShell` client wrapper owns the frame +
+  all sidebar CSS; ≤768px the sidebar collapses to an off-canvas drawer (sticky top bar + hamburger +
+  overlay), `Sidebar` now takes `open`/`onNavigate`. Login card fluid; Pengaturan tables scroll on
+  mobile. 95 tests; tsc + build clean.
 - 2026-06-05 — D9 checkout rate limit (PRD 0.7.5 §20.10): `RateLimitConfig` singleton (+migration,
   seeded 10/60s enabled); `lib/rate-limit.ts` (pure `evaluateBucket`, in-memory per-IP buckets,
   10s-cached config, `clientIpFromHeaders`); `/api/checkout` returns 429 + Retry-After when exceeded;

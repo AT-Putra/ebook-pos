@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "jest",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "admin:create": "node scripts/create-admin.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

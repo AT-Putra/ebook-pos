@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.4 |
-| Status | Core flow + dashboard (D1–D3 + D3.1) + CORS allowlist (D8) built & deployed |
+| Version | 0.7.5 |
+| Status | Core flow + dashboard (D1–D3 + D3.1) + CORS (D8) + checkout rate limit (D9) built & deployed |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-05 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.7.5** (2026-06-05) — Added **§20.10 Checkout rate limit (slice D9)**: per-IP fixed-window limit on `/api/checkout`, **configurable and disableable** from the Pengaturan menu. New `RateLimitConfig` singleton table; `lib/rate-limit.ts` (in-memory per-IP buckets + cached config); `/api/checkout` returns `429` + `Retry-After` when exceeded; admin config at `GET/PUT /api/admin/rate-limit`.
 - **0.7.4** (2026-06-05) — Added **§20.9 CORS domain allowlist (slice D8)** so external landing pages on other domains can POST to `/api/checkout` from the browser. New `AllowedOrigin` table; `/api/checkout` gains an `OPTIONS` preflight + per-response `Access-Control-Allow-Origin` echoed only for whitelisted (or same-app) origins; admin CRUD at `/api/admin/origins`; managed from the **Pengaturan** dashboard page. CORS is checked **live** against the DB (no restart needed).
 - **0.7.3** (2026-06-05) — Second bug-fix pass (state machine + delivery): (1) `canTransition` rewritten as an explicit allowed-transition map — a **PAID order can no longer be overwritten** by a late `FAILED`/`EXPIRED`/`CANCELLED` (only `PAID → REFUNDED`); failure/refund states are terminal. (2) Same→same is now a true **no-op** (duplicate `settlement` no longer re-writes `paidAt`). (3) `attemptDelivery` now **atomically claims** the row (`PENDING/FAILED → PROCESSING` via `updateMany`), closing a double-send race (invariant #3). (4) `processDueDeliveries` **reclaims stale `PROCESSING`** rows (orphaned by a crash, >10 min) so they retry. (5) Backoff off-by-one fixed — first retry is 1 min again. (6) `orderCode` uses crypto randomness + collision retry. (7) webhook signature compare is constant-time.
 - **0.7.2** (2026-06-05) — Bug-fix pass: (1) the proxy now guards **only** `/admin/*` UI pages; `/api/admin/*` routes **self-authenticate** via a shared `requireAdmin()` accepting a session cookie **or** the `ADMIN_TOKEN` bearer (previously the proxy's cookie-only gate blocked bearer/machine callers and left orders/resend unreachable). (2) `Sukses` is now bucketed by `sentAt` per §20.4 (was `updatedAt`). (3) `/api/admin/report` caps the range at 366 days. (4) `admin:create` masks the password input. §20.3/§20.5 updated.
@@ -357,6 +358,14 @@ model AllowedOrigin {                         // CORS allowlist for /api/checkou
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model RateLimitConfig {                        // singleton — checkout rate limit (§20.10)
+  id            String   @id @default("default")
+  enabled       Boolean  @default(true)
+  maxRequests   Int      @default(10)          // per IP per window on /api/checkout
+  windowSeconds Int      @default(60)
+  updatedAt     DateTime @updatedAt
 }
 ```
 
@@ -794,7 +803,8 @@ Leads Report UI) are built, tested, and deployed; the stack was upgraded to the 
 
 **Dashboard / CMS (§20) — in progress:** **D3.1** UX polish — restyled KPI widgets + a reusable
 sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF export (§20.8).
-**Done:** **D8** CORS domain allowlist (§20.9) — `AllowedOrigin` + `/api/checkout` CORS + Pengaturan UI.
+**Done:** **D8** CORS domain allowlist (§20.9) · **D9** checkout rate limit (§20.10) — both managed in
+the Pengaturan menu.
 Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
 **D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
 per-table CSV/PDF export already ships in D3.1).
@@ -994,3 +1004,25 @@ delete (`src/components/admin/OriginManager.tsx`). The sidebar's Pengaturan item
 **Landing-page integration:** POST JSON `{ productSlug, name, email, whatsapp, trackingId? }` to
 `https://<app>/api/checkout`; on `200` redirect to `redirectUrl` (or open Snap with `snapToken`). The
 landing page's origin must be on the allowlist for a browser POST to succeed.
+
+### 20.10 Checkout rate limit (slice D9)
+Throttles `/api/checkout` per client IP to curb spam, **configurable and fully disableable** by the
+operator (since legitimate campaigns may burst).
+
+**Data:** `RateLimitConfig` (§9) — a singleton row (`id = "default"`): `enabled`, `maxRequests`,
+`windowSeconds`. Seeded by its migration (default 10 req / 60 s, enabled).
+
+**Enforcement (`src/lib/rate-limit.ts`, applied in `/api/checkout` after CORS, before body parse):**
+- Fixed-window, **per-IP**, in an **in-memory** Map (`evaluateBucket` is a pure, unit-tested core).
+  Client IP comes from `X-Forwarded-For` (Caddy) via `clientIpFromHeaders`.
+- Config is read from the DB and **cached 10 s** (`getRateLimitConfig`); the admin `PUT` clears the
+  cache so changes apply immediately. `enabled = false` short-circuits → always allowed.
+- Over the limit → `429` with a `Retry-After` header (CORS headers still attached).
+- **Note/limitation:** the counter is in-memory, so it is per-container and resets on restart (fine for
+  the single-container deploy). A shared store (e.g. Redis) would be needed if scaled to >1 instance.
+
+**Admin API (`requireAdmin`):** `GET /api/admin/rate-limit` (current config),
+`PUT /api/admin/rate-limit` (`{ enabled, maxRequests (1–10000), windowSeconds (1–3600) }`).
+
+**UI:** the **Pengaturan** page gains a Rate Limit card (`RateLimitSettings.tsx`) — enable toggle +
+max requests + window, with a Save button.

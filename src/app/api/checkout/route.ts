@@ -6,6 +6,7 @@ import { createPendingOrder } from '@/lib/orders';
 import { createSnapTransaction } from '@/lib/midtrans';
 import { toChatId } from '@/lib/phone';
 import { corsHeadersFor } from '@/lib/cors';
+import { checkRateLimit, clientIpFromHeaders } from '@/lib/rate-limit';
 
 /** CORS preflight: allow only origins on the AllowedOrigin whitelist (or the app's own). */
 export async function OPTIONS(req: NextRequest) {
@@ -23,6 +24,15 @@ export async function POST(req: NextRequest) {
 
   const json = (body: unknown, status = 200) =>
     NextResponse.json(body, { status, headers: cors });
+
+  // Rate limit (per IP; configurable + disableable in the Pengaturan menu).
+  const rl = await checkRateLimit(clientIpFromHeaders(req.headers));
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Terlalu banyak permintaan. Silakan coba lagi sebentar lagi.' },
+      { status: 429, headers: { ...cors, 'Retry-After': String(rl.retryAfter) } },
+    );
+  }
 
   let body: unknown;
   try {

@@ -33,6 +33,7 @@
 - [x] **D3 — Leads Report dashboard UI** (cards + 14-day table + filter bar; Active/Program stubbed)
 - [x] **D3.1 — Dashboard UX polish** (restyled KPI widgets + TanStack `DataTable`: sort/search/paginate + CSV/PDF export) — see PRD §20.8
 - [x] **D8 — CORS domain allowlist** (`AllowedOrigin` + `/api/checkout` CORS + `/api/admin/origins` + Pengaturan UI) — PRD §20.9
+- [x] **D9 — Checkout rate limit** (`RateLimitConfig` + per-IP limit on `/api/checkout` + `/api/admin/rate-limit` + Pengaturan UI; configurable + disableable) — PRD §20.10
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
@@ -97,6 +98,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — D9 checkout rate limit (PRD 0.7.5 §20.10): `RateLimitConfig` singleton (+migration,
+  seeded 10/60s enabled); `lib/rate-limit.ts` (pure `evaluateBucket`, in-memory per-IP buckets,
+  10s-cached config, `clientIpFromHeaders`); `/api/checkout` returns 429 + Retry-After when exceeded;
+  admin `GET/PUT /api/admin/rate-limit` (clears cache on save); Pengaturan gains a Rate Limit card
+  (`RateLimitSettings`) with enable toggle + max + window. Configurable & disableable. 95 tests; build clean.
 - 2026-06-05 — D8 CORS domain allowlist (PRD 0.7.4 §20.9): `AllowedOrigin` table (+migration);
   `lib/cors.ts` (normalizeOrigin, live DB check); `/api/checkout` now has an OPTIONS preflight +
   echoes ACAO only for app-origin or active listed origins; admin CRUD `/api/admin/origins[/id]`

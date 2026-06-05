@@ -36,8 +36,8 @@ done, idempotent, and recoverable.
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
 - `src/components/admin/*` — dashboard UI: `Sidebar`, `KpiCard`, `LeadsReport`, `DataTable` (TanStack)
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors` for the dashboard/CORS)
-- `src/app/admin/(dashboard)/settings/` — Pengaturan page (CORS domain allowlist); `/api/admin/origins[/id]` CRUD
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`)
+- `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit; APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`
 - `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
@@ -59,6 +59,9 @@ done, idempotent, and recoverable.
 10. **CORS on `/api/checkout`** is allowlist-driven (`AllowedOrigin` table, managed in Pengaturan):
     echo `Access-Control-Allow-Origin` only for the app's own origin or an active listed origin,
     checked live via `lib/cors.ts`. Never use `*`. CORS is not an auth/anti-abuse boundary.
+11. **Checkout rate limit** (`lib/rate-limit.ts`, `RateLimitConfig` singleton, Pengaturan UI):
+    per-IP fixed window, in-memory (per container), configurable + disableable; `429` + `Retry-After`
+    when exceeded. Config cached 10s; admin PUT clears the cache.
 
 ## Status mapping (Midtrans → OrderStatus)
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·

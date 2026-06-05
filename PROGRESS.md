@@ -96,6 +96,10 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-05 — D3.1 visual polish to match `docs/mockups/cms.png`: dark navy gradient sidebar with
+  icon nav + active blue pill + "soon" badges on unbuilt pages; redesigned user block (avatar + name +
+  @username + logout); KPI cards now icon-tile-left; uppercase section labels; right-aligned filter
+  buttons. Sidebar uses a scoped `<style>` block for hover states. Behavior unchanged (refines §20.8).
 - 2026-06-05 — Fix: `buildDateSeries` used `cur.setHours()` (container UTC) → spurious leading day +
   WIB date mislabel. Rewrote to step by whole days anchored on +07:00, taking string args. 83 tests.
   (Diagnosed a "table shows all 0" report — it was correct: all test data was from today, and the

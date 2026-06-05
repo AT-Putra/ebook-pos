@@ -131,13 +131,13 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
             <option>Diet90</option>
           </select>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
           <button onClick={handleApply} disabled={loading}
-            style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+            style={{ padding: '7px 18px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 2px 6px rgba(37,99,235,0.3)' }}>
             {loading ? 'Memuat…' : 'Terapkan'}
           </button>
           <button onClick={handleReset} disabled={loading}
-            style={{ padding: '6px 16px', background: '#fff', color: '#374151', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: '0.875rem', cursor: 'pointer' }}>
+            style={{ padding: '7px 18px', background: '#fff', color: '#374151', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
             Reset
           </button>
         </div>
@@ -145,7 +145,7 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
 
       {/* Today real-time KPI cards */}
       <div style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.75rem' }}>
+        <h2 style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
           Ringkasan Hari Ini (Real Time) — {todayWib()}
         </h2>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -160,7 +160,7 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
 
       {/* 14-day series table */}
       <div>
-        <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.35rem' }}>
+        <h2 style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>
           Performa 14 Hari Terakhir (Data Hari Kemarin ke Belakang)
         </h2>
         <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '0 0 0.75rem' }}>

@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ADMIN_SESSION_COOKIE } from '@/lib/cookie-names';
 
-const PUBLIC_PATHS = ['/admin/login'];
+// Auth endpoints handle their own auth — never gate them here.
+const PUBLIC_PATHS = ['/admin/login', '/api/admin/auth/'];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  const isAdminUI = pathname.startsWith('/admin');
-  const isAdminApi = pathname.startsWith('/api/admin/auth');
-
-  if (!isAdminUI && !isAdminApi) return NextResponse.next();
+  if (!pathname.startsWith('/admin') && !pathname.startsWith('/api/admin/')) {
+    return NextResponse.next();
+  }
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
 
   const token = req.cookies.get(ADMIN_SESSION_COOKIE)?.value;

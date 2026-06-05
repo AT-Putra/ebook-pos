@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "jest",
     "postinstall": "prisma generate",
-    "admin:create": "node scripts/create-admin.mjs"
+    "admin:create": "node scripts/create-admin.mjs",
+    "check": "bash scripts/pre-push-check.sh"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

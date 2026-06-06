@@ -18,11 +18,14 @@ type WahaMessagePayload = {
   media?: WahaMedia;
 };
 
+const TAG = '[waha-inbox]';
+
 export async function POST(req: NextRequest) {
   const raw = await req.text();
 
   // 1. Authenticate (HMAC over the raw body). Fails closed if the secret is unset.
   if (!verifyWahaSignature(raw, req.headers.get('x-webhook-hmac'))) {
+    console.warn(`${TAG} 401 rejected: invalid/missing X-Webhook-Hmac (check WAHA_WEBHOOK_SECRET matches the WAHA hmac.key)`);
     return NextResponse.json({ error: 'Invalid signature.' }, { status: 401 });
   }
 
@@ -30,36 +33,45 @@ export async function POST(req: NextRequest) {
   try {
     body = JSON.parse(raw);
   } catch {
+    console.warn(`${TAG} 400 invalid JSON body`);
     return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
   }
 
-  // Only incoming message events with a video attachment matter.
-  if (body.event !== 'message') return NextResponse.json({ ok: true, ignored: 'event' });
   const payload = body.payload ?? {};
-  if (payload.fromMe) return NextResponse.json({ ok: true, ignored: 'fromMe' });
+  console.log(`${TAG} received event=%s from=%s hasMedia=%s mime=%s id=%s`,
+    body.event, payload.from, payload.hasMedia, payload.media?.mimetype, payload.id);
+
+  const ignore = (reason: string) => {
+    console.log(`${TAG} ignored: ${reason}`);
+    return NextResponse.json({ ok: true, ignored: reason });
+  };
+
+  // Only incoming message events with a video attachment matter.
+  if (body.event !== 'message') return ignore('event');
+  if (payload.fromMe) return ignore('fromMe');
 
   const messageId = payload.id ?? null;
   const media = payload.media;
   const mimeType = media?.mimetype ?? '';
   if (!payload.hasMedia || !media?.url || !mimeType.startsWith('video/')) {
-    return NextResponse.json({ ok: true, ignored: 'no-video' });
+    return ignore('no-video');
   }
 
   // 2. Idempotency — a re-delivered event is a no-op.
   if (messageId) {
     const dup = await db.challengeSubmission.findUnique({ where: { wahaMessageId: messageId } });
-    if (dup) return NextResponse.json({ ok: true, ignored: 'duplicate' });
+    if (dup) return ignore('duplicate');
   }
 
   // 3. Match sender → a PAID order for a challenge-active program (by WhatsApp number,
   //    so a buyer with more than one Customer row still matches).
   const chatId = payload.from ?? '';
-  if (!chatId.endsWith('@c.us')) return NextResponse.json({ ok: true, ignored: 'not-direct' });
+  if (!chatId.endsWith('@c.us')) return ignore('not-direct');
   let whatsapp: string;
   try {
     whatsapp = normalizeIndonesianPhone(chatId.replace('@c.us', ''));
   } catch {
-    return NextResponse.json({ ok: true, ignored: 'bad-number' });
+    return ignore('bad-number');
   }
 
   const order = await db.order.findFirst({
@@ -68,7 +80,7 @@ export async function POST(req: NextRequest) {
     include: { product: { include: { challenge: true } } },
   });
   if (!order || !order.product.challenge || !order.paidAt) {
-    return NextResponse.json({ ok: true, ignored: 'no-active-challenge' });
+    return ignore('no-active-challenge');
   }
   const challenge = order.product.challenge;
 
@@ -127,7 +139,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      return NextResponse.json({ ok: true, ignored: 'duplicate' });
+      return ignore('duplicate');
     }
     throw err;
   }
@@ -139,5 +151,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  console.log(`${TAG} accepted: participant=%s kind=%s stored=%s%s`,
+    participant.id, kind, !!mediaPath, rejectedReason ? ` rejected=${rejectedReason}` : '');
   return NextResponse.json({ ok: true });
 }

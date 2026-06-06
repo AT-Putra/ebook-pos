@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { saveUploadedPdf, UploadValidationError, type UploadFile } from '@/lib/files';
-import { salesStatus, parseSalesStart, parseSalesEnd } from '@/lib/programs';
+import { saveUploadedPdf, deleteUploadedFile, UploadValidationError, type UploadFile } from '@/lib/files';
+import { parseSalesStart, parseSalesEnd } from '@/lib/programs';
+import { serializeProgram } from '@/lib/program-serialize';
 
 const fieldsSchema = z.object({
   name: z.string().min(1).max(200),
@@ -25,29 +26,6 @@ function field(form: FormData, key: string): string | undefined {
 
 function isUploadFile(v: FormDataEntryValue | null): v is File & UploadFile {
   return typeof v === 'object' && v !== null && 'arrayBuffer' in v && typeof (v as File).size === 'number';
-}
-
-/** Serializes a program (Product + attachments + computed sale status) for the dashboard. */
-export function serializeProgram(
-  p: Prisma.ProductGetPayload<{ include: { attachments: true; _count: { select: { orders: true } } } }>,
-) {
-  return {
-    id: p.id,
-    slug: p.slug,
-    name: p.name,
-    programName: p.programName,
-    description: p.description,
-    priceIdr: p.priceIdr,
-    isActive: p.isActive,
-    fileName: p.fileName,
-    salesStartAt: p.salesStartAt,
-    salesEndAt: p.salesEndAt,
-    salesStatus: salesStatus(p),
-    orderCount: p._count.orders,
-    attachments: [...p.attachments]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(a => ({ id: a.id, fileName: a.fileName, sortOrder: a.sortOrder })),
-  };
 }
 
 export async function GET(req: NextRequest) {
@@ -142,6 +120,9 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ program: serializeProgram(program) }, { status: 201 });
   } catch (err) {
+    // The DB write failed after the files were saved — don't leak orphaned PDFs.
+    await deleteUploadedFile(saved.ebook.filePath);
+    for (const a of saved.attachments) await deleteUploadedFile(a.filePath);
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       return NextResponse.json({ error: 'Slug sudah dipakai program lain.' }, { status: 409 });
     }

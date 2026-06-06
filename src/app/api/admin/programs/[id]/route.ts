@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { saveUploadedPdf, deleteUploadedFile, UploadValidationError, type UploadFile } from '@/lib/files';
 import { parseSalesStart, parseSalesEnd } from '@/lib/programs';
-import { serializeProgram } from '../route';
+import { serializeProgram } from '@/lib/program-serialize';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -135,6 +135,10 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     if (oldEbookPath) await deleteUploadedFile(oldEbookPath);
     return NextResponse.json({ program: serializeProgram(program) });
   } catch (err) {
+    // The update failed after new files were saved — drop the orphans (keep the old e-book,
+    // which is still the referenced one because the row wasn't repointed).
+    if (data.filePath) await deleteUploadedFile(data.filePath as string);
+    for (const a of savedAttachments) await deleteUploadedFile(a.filePath);
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       return NextResponse.json({ error: 'Slug sudah dipakai program lain.' }, { status: 409 });
     }

@@ -70,15 +70,18 @@ async function ensureDeliveryItems(deliveryId: string): Promise<void> {
   const { product } = delivery.order;
   const snapshot = buildDeliverySnapshot(product, product.attachments);
 
-  await db.deliveryItem.createMany({
-    data: snapshot.map(s => ({
-      deliveryId,
-      kind: s.kind,
-      filePath: s.filePath,
-      fileName: s.fileName,
-      sortOrder: s.sortOrder,
-    })),
-  });
+  // Per-row create (not createMany) so Prisma reliably fills @updatedAt; the list is tiny.
+  for (const s of snapshot) {
+    await db.deliveryItem.create({
+      data: {
+        deliveryId,
+        kind: s.kind,
+        filePath: s.filePath,
+        fileName: s.fileName,
+        sortOrder: s.sortOrder,
+      },
+    });
+  }
 }
 
 /**

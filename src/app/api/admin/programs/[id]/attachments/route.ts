@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { saveUploadedPdf, UploadValidationError, type UploadFile } from '@/lib/files';
-import { serializeProgram } from '../../route';
+import { serializeProgram } from '@/lib/program-serialize';
 
 type Props = { params: Promise<{ id: string }> };
 

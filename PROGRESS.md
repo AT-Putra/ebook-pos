@@ -148,6 +148,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — D10 review/bug-fix pass before push: (1) moved `serializeProgram` to
+  `lib/program-serialize.ts` (was imported across route files — fragile); (2) admin create/PATCH now
+  **clean up orphaned uploaded PDFs** if the DB write fails (e.g. duplicate slug 409); (3) switched
+  `ensureDeliveryItems` from `createMany` to per-row `create` so Prisma reliably fills `DeliveryItem.
+  @updatedAt`. 118 tests + tsc + build green.
 - 2026-06-06 — **D10 Program management BUILT** (green: 118 tests, tsc, `npm run build`). Schema:
   `Product` +`programName`/`salesStartAt`/`salesEndAt`, new `ProductAttachment` + `DeliveryItem`
   (migration `20260606000000_add_programs_and_attachments`). `lib/programs.ts` (pure `isOnSale`/

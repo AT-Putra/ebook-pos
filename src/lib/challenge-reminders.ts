@@ -4,6 +4,15 @@ import { computeDueReminders, renderTemplate, type ChallengePhase } from './chal
 import { sendTextHumanized } from './waha';
 import { toChatId } from './phone';
 
+// Guaranteed extra gap BETWEEN messages (on top of sendTextHumanized's own typing delay),
+// so even short templates / many recipients never approach a per-second burst (anti-spam, §12.2.1).
+const MIN_GAP_MS = 3000;
+const MAX_GAP_MS = 7000;
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+function interMessageGapMs(): number {
+  return Math.round(MIN_GAP_MS + Math.random() * (MAX_GAP_MS - MIN_GAP_MS));
+}
+
 /**
  * D12 reminder worker (PRD §21.8). Scans active-challenge participants in AWAITING_INITIAL / RUNNING,
  * sends each due reminder once (reserve a ChallengeReminderLog row, then send — favors no double-send),
@@ -73,6 +82,9 @@ export async function processDueChallengeReminders(now: Date = new Date()): Prom
         failed++;
         console.error(`[challenge-reminders] send failed participant=${p.id} key=${key}:`, err);
       }
+
+      // Space every message out, regardless of template length or recipient count.
+      await sleep(interMessageGapMs());
     }
 
     if (drop) {

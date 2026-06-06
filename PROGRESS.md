@@ -162,6 +162,10 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — D12 anti-spam pacing: the reminder worker is strictly sequential and now adds a
+  randomized **3–7s gap between every message** (`MIN_GAP_MS`/`MAX_GAP_MS` in `lib/challenge-reminders.ts`)
+  on top of `sendTextHumanized`'s typing delay — so a single WA number never bursts (≈1 msg / 8–13s even
+  for short templates / big cohorts). PRD §21.8 + §12.2.1 noted. tsc + tests + build green.
 - 2026-06-06 — **D12 Challenge WA automation BUILT (PRD 0.10.0 §21.8).** Owner decisions: auto-create
   participant on PAID · external cron endpoint · (Active KPIs left deferred). Schema: enum value
   `AWAITING_INITIAL` + `ChallengeReminderLog` (`@@unique([participantId,key])`); migration

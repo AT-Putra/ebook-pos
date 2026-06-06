@@ -701,7 +701,9 @@ exempt, though it may still `startTyping`/`stopTyping`):
 4. `POST /api/stopTyping` — `{ session, chatId }`.
 5. `POST /api/sendText` — `{ session, chatId, text }`.
 All calls use `X-Api-Key: WAHA_API_KEY` over `https://`. (Endpoints confirmed at
-https://waha.devlike.pro/docs/how-to/send-messages/.)
+https://waha.devlike.pro/docs/how-to/send-messages/.) **Bulk sends must be strictly sequential** (never
+parallel) and additionally spaced by a randomized gap between recipients — see the D12 worker (§21.8) —
+so a single WhatsApp number never approaches a per-second send rate.
 
 **Phone normalization (`src/lib/phone.ts`)** — Indonesian numbers:
 1. Strip spaces, dashes, parentheses, and a leading `+`.
@@ -1534,6 +1536,13 @@ hour still catches up. Days are WIB calendar days.
 `sendTextHumanized` (§12.2.1). Reserve the slot first (`ChallengeReminderLog` create; P2002 → already
 sent, skip) **then** send, recording `wahaMessageId` or `error` on the log. Reserving-before-sending
 favors **no double-send** (anti-spam) over guaranteeing delivery; failures are visible on the log row.
+
+**Rate / anti-spam pacing.** The worker is **strictly sequential** (no parallel sends). Each message
+already carries the humanized typing delay (§12.2.1; caps ~6s for long templates), and the worker adds a
+further **randomized 3–7s gap between every message** (`MIN_GAP_MS`/`MAX_GAP_MS`) — across recipients
+too — so the system never approaches a per-second burst even if templates are short or a large cohort
+comes due in the same hour. A big cohort simply makes the hourly run take longer (≈ one message per
+8–13s); that's acceptable for a single WhatsApp sender.
 
 **No phase status rows.** "Fase 1/2 Selesai" remain **derived** (§21.4) — the cron only sends the
 day-30/60/90 messages; it does not change status except for the two eliminations.

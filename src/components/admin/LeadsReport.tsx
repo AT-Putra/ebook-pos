@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { KpiCard } from './KpiCard';
 import { DataTable, type DataTableColumn } from './DataTable';
+import { PageHeader } from './Card';
 import type { ReportData, DayMetrics } from '@/lib/report';
 
 function formatIDR(amount: number): string {
@@ -121,15 +122,11 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
   return (
     <div style={{ padding: '1.5rem' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div>
-          <h1 style={{ fontSize: '1.35rem', fontWeight: 700, margin: 0 }}>Leads Report</h1>
-          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '2px 0 0' }}>
-            Ringkasan performa leads, penjualan, dan komunikasi WA
-          </p>
-        </div>
-        <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Last updated: {lastUpdated}</span>
-      </div>
+      <PageHeader
+        title="Leads Report"
+        subtitle="Ringkasan performa leads, penjualan, dan komunikasi WA"
+        right={<span style={{ fontSize: '0.75rem', color: '#64748b' }}>Last updated: {lastUpdated}</span>}
+      />
 
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', marginBottom: '1.5rem', flexWrap: 'wrap', background: '#fff', padding: '0.85rem 1rem', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>

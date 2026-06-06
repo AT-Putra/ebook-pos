@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.8.0 |
-| Status | Core flow + dashboard (D1–D3, D3.1) + CORS (D8) + rate limit (D9), responsive, built & deployed; **Program management (D10) built (green) — pending VPS deploy + migration** |
+| Version | 0.8.1 |
+| Status | Core flow + dashboard (D1–D3, D3.1) + CORS (D8) + rate limit (D9) + Program (D10), responsive, deployed; **shared Card UI system (§20.12) standardized** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.8.1** (2026-06-06) — **Dashboard UI consistency (§20.12).** Added a shared **`Card` / `CardStack` / `PageHeader`** primitive set (`src/components/admin/Card.tsx`) so every admin section is the **same width, padding, radius, and shadow** — fixes the uneven cards on the Pengaturan page. A single `CONTENT_MAX_WIDTH` constrains form pages; the `DataTable` shell now matches the card style. **Standing requirement:** all current and future admin menus compose their UI from these primitives (no ad-hoc card `<div>`s). Pengaturan, Program, and Leads Report refactored onto it.
 - **0.8.0** (2026-06-06) — **Built (green: 118 tests, tsc, build; pending VPS deploy + migration).** Added **§20.11 Program management (slice D10)**: a login-gated **Program** page (`/admin/program`) to configure the sellable e-books. It lists programs in a TanStack `DataTable` (id, product name, program name, sales period, price, status) with an **Add Program** button and per-row **Edit**; the add/edit form can **upload the PDF e-book**, written privately into `EBOOK_FILES_DIR` (never under `public/`, never served statically — invariant #4). Each program carries a **sales window** (`salesStartAt`/`salesEndAt`, WIB); **once the period ends the e-book can no longer be bought** — the landing page hides the form and `/api/checkout` rejects with `403`. `Product` gains `programName`, `salesStartAt`, `salesEndAt` (§9). The **Program** dropdown on the Leads Report becomes **live** — it filters metrics by program/product via `/api/admin/report?programId=…` (§20.4/§20.5); the challenge-tied **Active / Conv. Rate Active** KPIs stay stubbed (§20.2). New `lib/programs.ts` (pure `isOnSale` / sales-status) + private upload handling in `lib/files.ts`; admin CRUD at `/api/admin/programs[/{id}]`. A program may also carry **extra attachment PDFs** (`ProductAttachment`, e.g. a separate to-do-list PDF) uploadable on create and add/removable on edit; on purchase the buyer receives the **e-book + every attachment** over WhatsApp. To keep delivery exactly-once across multiple files, `Delivery` now has one **`DeliveryItem` per file** (e-book + each attachment), snapshotted at purchase; a retry re-sends only the items not yet `SENT` (invariant #3). The **Program** is the entity the future **Challenge module (§15)** will reference.
 - **0.7.6** (2026-06-05) — Dashboard made **responsive**: new `DashboardShell` wraps the sidebar + content; on ≤768px the sidebar collapses into an off-canvas drawer with a sticky top bar + hamburger (overlay to dismiss). Sidebar CSS consolidated into the shell's `<style>` block. Login card and the Pengaturan tables made mobile-friendly (fluid width / horizontal scroll). KPI cards and DataTable already wrapped/scrolled.
 - **0.7.5** (2026-06-05) — Added **§20.10 Checkout rate limit (slice D9)**: per-IP fixed-window limit on `/api/checkout`, **configurable and disableable** from the Pengaturan menu. New `RateLimitConfig` singleton table; `lib/rate-limit.ts` (in-memory per-IP buckets + cached config); `/api/checkout` returns `429` + `Retry-After` when exceeded; admin config at `GET/PUT /api/admin/rate-limit`.
@@ -1213,3 +1214,28 @@ queryable by `productId`; do **not** build the challenge now (Active / Conv. Rat
       by the selected program; "Semua program" shows all. Active / Conv. Rate Active remain stubbed.
 - [ ] `DELETE` refuses a program with orders (`409`); deactivation is the supported path. Build green,
       tests green, `tsc --noEmit` clean; migration + any lockfile change committed.
+
+### 20.12 Dashboard UI consistency — shared Card system `[STABLE]`
+The dashboard must look **consistent and aesthetic across every menu**. Cards on a page must be the
+**same size** (width, padding, corner radius, shadow) regardless of their content — no per-component
+ad-hoc card `<div>`s with their own widths (that produced the uneven Pengaturan cards this section fixes).
+
+**Primitives (`src/components/admin/Card.tsx`) — use these everywhere:**
+- **`Card`** — the one content-card shell: white background, `1px #e7ebf0` border, `12px` radius, a
+  subtle shadow, and uniform padding (`1.15rem 1.35rem`). Optional header (`title` + `description` +
+  `headerRight`) with a hairline divider above the body; `noBodyPadding` for full-bleed tables.
+- **`CardStack`** — vertical stack with a consistent gap, constrained to **`CONTENT_MAX_WIDTH`** (single
+  source of truth for page width) so all cards in it are identical width.
+- **`PageHeader`** — the standard page title + subtitle (+ optional right slot) at the top of every page.
+- The reusable **`DataTable`** shares the same shell styling (border/radius/shadow) so tables and cards
+  match.
+
+**Rules (apply to all current and future menus):**
+1. Compose pages from `PageHeader` + `CardStack` + `Card` (and `DataTable` for tabular data). Do **not**
+   hand-roll card containers or set per-card `maxWidth`.
+2. Page width comes only from `CONTENT_MAX_WIDTH`; change it in one place if it ever needs to move.
+3. Keep the existing responsive shell (§20.8, ≤768px drawer); cards are fluid within the content column.
+4. KPI stat tiles (`KpiCard`) are a separate, intentionally smaller widget and are exempt from the
+   content-card shell — but they stay uniform with each other.
+
+Applied so far: **Pengaturan** (CORS + rate-limit cards now identical), **Program**, **Leads Report**.

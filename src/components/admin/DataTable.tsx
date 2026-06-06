@@ -131,7 +131,7 @@ export function DataTable<T>({
   };
 
   return (
-    <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+    <div style={{ background: '#fff', border: '1px solid #e7ebf0', borderRadius: 12, boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.05)', overflow: 'hidden' }}>
       {/* Toolbar: search + export */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '10px 12px', flexWrap: 'wrap' }}>
         {searchable ? (

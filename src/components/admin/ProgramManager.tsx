@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, FormEvent } from 'react';
 import { DataTable, type DataTableColumn } from './DataTable';
+import { PageHeader } from './Card';
 import { toWibDateInput, type SaleStatus } from '@/lib/programs';
 
 type Attachment = { id: string; fileName: string; sortOrder: number };
@@ -105,19 +106,17 @@ export function ProgramManager() {
   ], []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <div>
-          <h1 style={{ fontSize: '1.35rem', fontWeight: 700, margin: 0 }}>Program</h1>
-          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '2px 0 0' }}>
-            Kelola produk/e-book, lampiran, dan periode penjualan.
-          </p>
-        </div>
-        <button onClick={openCreate}
-          style={{ padding: '8px 18px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' }}>
-          + Tambah Program
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Program"
+        subtitle="Kelola produk/e-book, lampiran, dan periode penjualan."
+        right={
+          <button onClick={openCreate}
+            style={{ padding: '8px 18px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 6px rgba(37,99,235,0.3)' }}>
+            + Tambah Program
+          </button>
+        }
+      />
 
       {loading ? (
         <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Memuat…</p>

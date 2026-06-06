@@ -6,9 +6,9 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.8.0 |
+| PRD version in sync with | 0.8.1 |
 | Last updated | 2026-06-06 |
-| Overall status | F1–F7 + dashboard D1–D3.1 + D8 CORS + D9 rate limit built & deployed; **D10 Program management built (green) — pending VPS deploy + migration** |
+| Overall status | F1–F7 + dashboard D1–D3.1 + D8 CORS + D9 rate limit + **D10 Program deployed**; **shared Card UI system (§20.12) standardized** |
 | Repo working state | green (build passes, 118 tests pass, tsc clean) |
 
 ## How to run
@@ -148,6 +148,14 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — **Dashboard UI consistency (PRD 0.8.1 §20.12).** Pengaturan cards were uneven (each
+  component set its own width/padding). Added shared `components/admin/Card.tsx` — `Card` (one shell:
+  border + 12px radius + uniform padding, optional header), `CardStack` (gap + `CONTENT_MAX_WIDTH`),
+  `PageHeader`. Refactored OriginManager + RateLimitSettings onto `Card` (no own width); settings page
+  wraps them in `CardStack` so all cards are identical width. `DataTable` shell restyled to match.
+  ProgramManager + LeadsReport now use `PageHeader`. **Standing rule:** all menus compose from these
+  primitives — no ad-hoc card divs / per-card maxWidth. tsc + build green. Docs: PRD §20.12 + changelog
+  0.8.1, CLAUDE.md, PROGRESS.md.
 - 2026-06-06 — D10 review/bug-fix pass before push: (1) moved `serializeProgram` to
   `lib/program-serialize.ts` (was imported across route files — fragile); (2) admin create/PATCH now
   **clean up orphaned uploaded PDFs** if the DB write fails (e.g. duplicate slug 409); (3) switched

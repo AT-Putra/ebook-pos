@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, FormEvent } from 'react';
+import { Card } from './Card';
 
 type Config = { enabled: boolean; maxRequests: number; windowSeconds: number };
 
@@ -37,18 +38,15 @@ export function RateLimitSettings() {
     }
   }
 
-  const card: React.CSSProperties = { background: '#fff', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', padding: '1.1rem 1.25rem', maxWidth: 760 };
   const input: React.CSSProperties = { border: '1px solid #cbd5e1', borderRadius: 6, padding: '7px 10px', fontSize: '0.875rem', width: 120 };
 
-  if (!config) return <div style={card}><p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Memuat…</p></div>;
+  if (!config) return <Card title="Rate Limit Checkout"><p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>Memuat…</p></Card>;
 
   return (
-    <div style={card}>
-      <h2 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 4px' }}>Rate Limit Checkout</h2>
-      <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 1rem' }}>
-        Batasi jumlah percobaan checkout per alamat IP untuk mencegah spam. Matikan untuk menonaktifkan sepenuhnya.
-      </p>
-
+    <Card
+      title="Rate Limit Checkout"
+      description="Batasi jumlah percobaan checkout per alamat IP untuk mencegah spam. Matikan untuk menonaktifkan sepenuhnya."
+    >
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.875rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={config.enabled}
@@ -83,6 +81,6 @@ export function RateLimitSettings() {
           {status && <span style={{ fontSize: '0.8rem', color: status === 'Tersimpan.' ? '#16a34a' : '#dc2626' }}>{status}</span>}
         </div>
       </form>
-    </div>
+    </Card>
   );
 }

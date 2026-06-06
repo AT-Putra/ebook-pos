@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, FormEvent } from 'react';
+import { Card } from './Card';
 
 type Origin = {
   id: string;
@@ -66,27 +67,22 @@ export function OriginManager() {
     load();
   }
 
-  const card: React.CSSProperties = { background: '#fff', borderRadius: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', padding: '1.1rem 1.25rem' };
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: '7px 10px', fontSize: '0.875rem', boxSizing: 'border-box' };
 
   return (
-    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <div style={card}>
-        <h2 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 4px' }}>Domain Whitelist (CORS)</h2>
-        <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 1rem' }}>
-          Domain landing page yang boleh mengirim checkout ke API ini dari browser. Contoh:
-          <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, margin: '0 4px' }}>https://landing.contoh.com</code>
-        </p>
-
+    <>
+      <Card
+        title="Domain Whitelist (CORS)"
+        description={<>Domain landing page yang boleh mengirim checkout ke API ini dari browser. Contoh: <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4 }}>https://landing.contoh.com</code></>}
+      >
         <form onSubmit={handleAdd} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: '1 1 260px' }}>
             <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginBottom: 3 }}>Origin (URL)</label>
-            <input name="origin" type="text" required placeholder="https://landing.contoh.com"
-              style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: '7px 10px', fontSize: '0.875rem', boxSizing: 'border-box' }} />
+            <input name="origin" type="text" required placeholder="https://landing.contoh.com" style={inputStyle} />
           </div>
           <div style={{ flex: '1 1 160px' }}>
             <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginBottom: 3 }}>Label (opsional)</label>
-            <input name="label" type="text" placeholder="Kampanye IG"
-              style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: '7px 10px', fontSize: '0.875rem', boxSizing: 'border-box' }} />
+            <input name="label" type="text" placeholder="Kampanye IG" style={inputStyle} />
           </div>
           <button type="submit" disabled={submitting}
             style={{ padding: '8px 18px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', opacity: submitting ? 0.7 : 1 }}>
@@ -94,36 +90,36 @@ export function OriginManager() {
           </button>
         </form>
         {error && <p style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: 8 }}>{error}</p>}
-      </div>
+      </Card>
 
-      <div style={card}>
+      <Card title="Daftar Domain" noBodyPadding>
         {loading ? (
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Memuat…</p>
+          <p style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1.15rem 1.35rem', margin: 0 }}>Memuat…</p>
         ) : origins.length === 0 ? (
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Belum ada domain. Tambahkan di atas.</p>
+          <p style={{ color: '#94a3b8', fontSize: '0.85rem', padding: '1.15rem 1.35rem', margin: 0 }}>Belum ada domain. Tambahkan di atas.</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: 480 }}>
             <thead>
               <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
-                <th style={{ padding: '8px 10px' }}>Origin</th>
-                <th style={{ padding: '8px 10px' }}>Label</th>
-                <th style={{ padding: '8px 10px' }}>Status</th>
-                <th style={{ padding: '8px 10px', textAlign: 'right' }}>Aksi</th>
+                <th style={{ padding: '8px 14px' }}>Origin</th>
+                <th style={{ padding: '8px 14px' }}>Label</th>
+                <th style={{ padding: '8px 14px' }}>Status</th>
+                <th style={{ padding: '8px 14px', textAlign: 'right' }}>Aksi</th>
               </tr>
             </thead>
             <tbody>
               {origins.map((o, i) => (
                 <tr key={o.id} style={{ background: i % 2 ? '#f8fafc' : '#fff' }}>
-                  <td style={{ padding: '8px 10px', fontFamily: 'monospace' }}>{o.origin}</td>
-                  <td style={{ padding: '8px 10px', color: '#64748b' }}>{o.label ?? '—'}</td>
-                  <td style={{ padding: '8px 10px' }}>
+                  <td style={{ padding: '8px 14px', fontFamily: 'monospace' }}>{o.origin}</td>
+                  <td style={{ padding: '8px 14px', color: '#64748b' }}>{o.label ?? '—'}</td>
+                  <td style={{ padding: '8px 14px' }}>
                     <button onClick={() => toggle(o)} style={{
                       border: 'none', cursor: 'pointer', borderRadius: 999, padding: '2px 10px', fontSize: '0.72rem', fontWeight: 600,
                       background: o.isActive ? '#dcfce7' : '#f1f5f9', color: o.isActive ? '#16a34a' : '#94a3b8',
                     }}>{o.isActive ? 'Aktif' : 'Nonaktif'}</button>
                   </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>
                     <button onClick={() => remove(o)} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '0.8rem' }}>Hapus</button>
                   </td>
                 </tr>
@@ -132,7 +128,7 @@ export function OriginManager() {
           </table>
           </div>
         )}
-      </div>
-    </div>
+      </Card>
+    </>
   );
 }

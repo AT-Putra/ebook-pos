@@ -35,7 +35,7 @@ done, idempotent, and recoverable.
 - `src/app/api/cron/process-deliveries/route.ts` — retry worker
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
-- `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload)
+- `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `Card`/`CardStack`/`PageHeader` (shared layout primitives — §20.12), `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload)
 - `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`)
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit; APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
@@ -113,6 +113,11 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
   `/api/admin/*` route self-authenticates with `requireAdmin(req)` from `lib/auth.ts` — accepts a
   valid session cookie OR the `ADMIN_TOKEN` bearer. Do NOT gate `/api/admin/*` in the proxy (that
   blocks bearer/machine callers). `/api/cron/*` uses `isCron`, not requireAdmin.
+- **UI consistency (§20.12) — REQUIRED for every menu:** compose pages from `PageHeader` + `CardStack` +
+  `Card` (and `DataTable` for tables) from `components/admin/Card.tsx`. All cards must be the same size
+  (one shell: `1px #e7ebf0` border, 12px radius, uniform padding); page width = the single
+  `CONTENT_MAX_WIDTH`. Do NOT hand-roll card `<div>`s or set per-card `maxWidth`. `KpiCard` stat tiles
+  are the only exempt widget (kept uniform among themselves).
 - Tables use the reusable `DataTable` (TanStack Table) — sort by raw value (dates/numbers, not strings),
   global search, pagination; CSV via `Blob`, PDF via `jspdf-autotable`. Export reflects the current view.
   TOTAL row renders in the table footer (outside the paged/sorted body). jQuery DataTables is banned (fights React).

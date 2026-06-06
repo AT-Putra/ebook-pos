@@ -36,20 +36,24 @@ function rate(numerator: number, denominator: number): number {
   return Math.round((numerator / denominator) * 10000) / 10000; // 4 decimal precision
 }
 
-export async function getDayMetrics(dateStr: string): Promise<DayMetrics> {
+export async function getDayMetrics(dateStr: string, productId?: string): Promise<DayMetrics> {
   const { start, end } = wibDayBounds(dateStr);
 
+  // Optional program filter — scope every metric to one product (PRD §20.4/§20.11).
+  const orderScope = productId ? { productId } : {};
+  const deliveryScope = productId ? { order: { productId } } : {};
+
   const [leads, purchases, sukses, failed] = await Promise.all([
-    db.order.count({ where: { createdAt: { gte: start, lte: end } } }),
+    db.order.count({ where: { ...orderScope, createdAt: { gte: start, lte: end } } }),
     db.order.aggregate({
-      where: { status: 'PAID', paidAt: { gte: start, lte: end } },
+      where: { ...orderScope, status: 'PAID', paidAt: { gte: start, lte: end } },
       _count: { _all: true },
       _sum: { amountIdr: true },
     }),
     // Sukses: bucket by sentAt (when the e-book was actually delivered).
-    db.delivery.count({ where: { status: 'SENT', sentAt: { gte: start, lte: end } } }),
+    db.delivery.count({ where: { ...deliveryScope, status: 'SENT', sentAt: { gte: start, lte: end } } }),
     // Failed: terminal failures, bucketed by updatedAt (no sentAt on a failure).
-    db.delivery.count({ where: { status: 'FAILED', updatedAt: { gte: start, lte: end } } }),
+    db.delivery.count({ where: { ...deliveryScope, status: 'FAILED', updatedAt: { gte: start, lte: end } } }),
   ]);
 
   const purchase = purchases._count._all;
@@ -83,12 +87,16 @@ export function buildDateSeries(fromStr: string, toStr: string): string[] {
   return dates;
 }
 
-export async function getReport(fromStr: string, toStr: string): Promise<ReportData> {
+export async function getReport(
+  fromStr: string,
+  toStr: string,
+  productId?: string,
+): Promise<ReportData> {
   const todayStr = toWibDateString(new Date());
 
   const [today, ...seriesDates] = await Promise.all([
-    getDayMetrics(todayStr),
-    ...buildDateSeries(fromStr, toStr).map(d => getDayMetrics(d)),
+    getDayMetrics(todayStr, productId),
+    ...buildDateSeries(fromStr, toStr).map(d => getDayMetrics(d, productId)),
   ]);
 
   return { today, series: seriesDates };

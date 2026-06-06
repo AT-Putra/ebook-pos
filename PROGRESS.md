@@ -6,10 +6,10 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.7.1 |
-| Last updated | 2026-06-05 |
-| Overall status | F1–F7 + dashboard D1–D3 built & deployed; building D3.1 (dashboard UX polish) |
-| Repo working state | green (build passes, 82 tests pass) |
+| PRD version in sync with | 0.8.0 |
+| Last updated | 2026-06-06 |
+| Overall status | F1–F7 + dashboard D1–D3.1 + D8 CORS + D9 rate limit built & deployed; **D10 Program management built (green) — pending VPS deploy + migration** |
+| Repo working state | green (build passes, 118 tests pass, tsc clean) |
 
 ## How to run
 - Install: `npm install`
@@ -34,15 +34,47 @@
 - [x] **D3.1 — Dashboard UX polish** (restyled KPI widgets + TanStack `DataTable`: sort/search/paginate + CSV/PDF export) — see PRD §20.8
 - [x] **D8 — CORS domain allowlist** (`AllowedOrigin` + `/api/checkout` CORS + `/api/admin/origins` + Pengaturan UI) — PRD §20.9
 - [x] **D9 — Checkout rate limit** (`RateLimitConfig` + per-IP limit on `/api/checkout` + `/api/admin/rate-limit` + Pengaturan UI; configurable + disableable) — PRD §20.10
+- [x] **D10 — Program management** (Product gains `programName`/`salesStartAt`/`salesEndAt` + `ProductAttachment` + `DeliveryItem`; `/admin/program` list+add+edit modal with e-book PDF upload **+ attachment PDFs** add/remove; `lib/programs.ts` sales-window; checkout `403` after period ends; buyer gets **e-book + all attachments** (per-file exactly-once via `DeliveryItem`); live Program filter on Leads Report; Program is the future Challenge's reference entity) — PRD §20.11 *(built green: 118 tests + tsc + build; pending VPS deploy + migration)*
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
-- (nothing — D3.1 complete; deploy to VPS next)
+- **D10 Program management — BUILT (green), not yet deployed.** Implemented per the plan below
+  (schema + migration `20260606000000_add_programs_and_attachments`, `lib/programs.ts`, multi-file
+  delivery via `DeliveryItem`, upload in `lib/files.ts`, admin `/api/admin/programs[/id][/attachments]`,
+  `ProgramManager` modal + `/admin/program`, live Leads Report Program dropdown). 118 tests, tsc, build
+  all green. **Next: deploy** — `git pull && sudo docker compose up -d --build` **then run the
+  migration** (`node_modules/.bin/prisma migrate deploy`); raise Caddy `request_body { max_size 40MB }`.
+  Original build plan (for reference):
+  1. Schema: add `programName`/`salesStartAt`/`salesEndAt` to `Product`; new `ProductAttachment`
+     (productId, filePath, fileName, mimeType, sizeBytes?, sortOrder) and `DeliveryItem` (deliveryId,
+     kind ebook|attachment, filePath, fileName, sortOrder, status, attempts, wahaMessageId, sentAt);
+     `Delivery.items` + `Product.attachments`. Nullable cols so existing rows stay always-on-sale.
+     `npx prisma migrate dev`.
+  2. `src/lib/programs.ts` — pure `isOnSale(product, now)` + `salesStatus(...)` (+ unit tests: WIB
+     boundaries, null bounds, scheduled/open/closed/inactive).
+  3. Enforce sales window: `/api/checkout` → `403` when closed (no order); `[slug]/page.tsx` hides form.
+  4. `src/lib/files.ts` — `saveUploadedPdf` (validate `application/pdf` + `%PDF-` magic + size cap,
+     traversal-safe `<cuid>.pdf`, temp-then-rename into `EBOOK_FILES_DIR`); reused for e-book + each attachment.
+  5. **Multi-file delivery** (`lib/delivery.ts`, `waha.ts`, webhook): on PAID, when creating the
+     `Delivery`, snapshot `DeliveryItem` rows (ebook sortOrder 0 + one per `ProductAttachment`).
+     `attemptDelivery` claims the Delivery, sends each not-yet-`SENT` item in order, marks items
+     SENT/FAILED individually; Delivery→SENT only when all items SENT; retry resends only unsent items.
+     Tests: multi-file success, partial-failure-then-retry (no double-send), all-sent → Delivery SENT.
+  6. Admin API `/api/admin/programs` (GET/POST multipart incl. attachments) + `/[id]` (PATCH multipart:
+     fields + replace ebook + add attachments / DELETE, `409` if it has orders) +
+     `/[id]/attachments` (POST add) + `/[id]/attachments/[attId]` (DELETE remove + unlink). `requireAdmin`.
+  7. UI: `program/page.tsx` + `ProgramManager.tsx` (DataTable list + Tambah/Edit form w/ ebook picker +
+     Attachments section: multi-file add + existing list with remove ×); Sidebar Program → `ready: true`.
+  8. Leads Report Program dropdown live: fetch `/api/admin/programs`, pass `&programId` to report;
+     `report.ts` helpers take optional `productId`. Update tests.
+  9. Run pre-push hook (tests + tsc + docker build) before pushing. Update all 3 md files' "done" state.
 
 ## Next up
-- Deploy D3.1 to VPS: `git pull && sudo docker compose up -d --build` (no migration needed — pure UI).
-- Deployment finish (parallel ops task): upload e-book PDF, set Midtrans webhook + Finish Redirect URL,
-  add the retry cron, run sandbox E2E, then switch Midtrans to production keys.
+- Deploy D10: `git pull && sudo docker compose up -d --build` **and run the new migration**
+  (`node_modules/.bin/prisma migrate deploy`) — adds Product columns + `ProductAttachment` +
+  `DeliveryItem`. Raise Caddy `request_body { max_size 40MB }` so 32 MB uploads aren't rejected.
+- Deployment finish (parallel ops task): upload e-book PDF (or via the new Program UI), set Midtrans
+  webhook + Finish Redirect URL, add the retry cron, run sandbox E2E, then switch to production keys.
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -84,6 +116,24 @@
 - **Dashboard tables (D3.1, 2026-06-05 — PRD §20.8):** use **TanStack Table** (`@tanstack/react-table`)
   for sort/search/paginate; **`jspdf` + `jspdf-autotable`** for PDF export, native `Blob` for CSV.
   jQuery DataTables rejected (fights React's render model). Sort by raw value; export reflects current view.
+- **Program = a Product, not the Challenge (D10, 2026-06-06 — PRD §20.11):** rather than a new model, a
+  "program" is a `Product` row extended with `programName` + a `salesStartAt`/`salesEndAt` window
+  (3 nullable columns — no breaking change, single-product seed stays always-on-sale). Keeps checkout
+  per-slug and the report filterable by `productId`. The **Program** sidebar/dropdown is this config —
+  **separate from** the deferred Challenge module (Active/Conv.Rate Active stay stubbed). PDF upload
+  writes privately into `EBOOK_FILES_DIR` (invariant #4/#12). Past `salesEndAt` ⇒ checkout `403`.
+- **Attachments + multi-file delivery (D10, 2026-06-06):** a program may carry extra PDFs
+  (`ProductAttachment`, e.g. a separate to-do-list) delivered **with** the e-book on purchase. To keep
+  exactly-once across files, `Delivery` gets one **`DeliveryItem` per file**, snapshotted at PAID;
+  `attemptDelivery` sends each not-yet-`SENT` item, Delivery→SENT only when all sent, retry resends only
+  unsent items (invariant #3 is now per-file). Chosen over a JSON `sentFilePaths` list for clean
+  per-file error/retry state and to fit the future WA-Logs `DeliveryAttempt` (D5).
+- **D10 UI/upload choices (2026-06-06, owner):** Add/Edit is a **modal/drawer overlaying the Program
+  page** (not a separate route). **Max upload = 32 MB per PDF** (`MAX_UPLOAD_BYTES`). Caddy needs
+  `request_body { max_size 40MB }` and the WAHA provider must accept ~43 MB base64 payloads.
+- **Program ↔ Challenge link (D10, 2026-06-06):** the deferred Challenge will reference a program
+  (`Contest.programId = Product.id`, entry gated on a PAID order for it). Spec'd as a forward link only;
+  do NOT build the challenge now. Keep `Product`/`ProductAttachment` queryable by `productId`.
 
 ## Known issues / TODO
 - (none)
@@ -98,6 +148,33 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — **D10 Program management BUILT** (green: 118 tests, tsc, `npm run build`). Schema:
+  `Product` +`programName`/`salesStartAt`/`salesEndAt`, new `ProductAttachment` + `DeliveryItem`
+  (migration `20260606000000_add_programs_and_attachments`). `lib/programs.ts` (pure `isOnSale`/
+  `salesStatus` + WIB date helpers). `lib/files.ts` +`saveUploadedPdf` (PDF magic+size 32 MB, atomic
+  temp→rename, random name) +`deleteUploadedFile`. **Multi-file delivery:** `lib/delivery.ts` rewritten
+  — `buildDeliverySnapshot`/`allItemsSent` (pure, tested) + per-`DeliveryItem` send (lazy-snapshot on
+  first attempt, retry resends only unsent items, Delivery SENT only when all items SENT); resend route
+  resets items. Checkout `403` + `[slug]` page hides form when `!isOnSale`. Admin API
+  `/api/admin/programs` (GET/POST multipart) + `/[id]` (PATCH/DELETE) + `/[id]/attachments[/attId]`.
+  `report.ts` + report route take optional `programId`. UI: `ProgramManager` (DataTable + Add/Edit
+  modal w/ ebook + attachments) + `/admin/program`; Sidebar Program `ready`; Leads Report Program
+  dropdown live. `next lint` is gone in Next 16 (gate = tests+tsc+docker build). Pending VPS deploy.
+- 2026-06-06 — **D10 Program management specced (PRD 0.8.0 §20.11)** — docs only, no code yet (per the
+  standing rule: spec in PRD before building). New menu **Program** = product/program configuration:
+  list programs in a TanStack `DataTable` (id / product name / program name / period / price / status),
+  **Add Program** + **Edit** forms that **upload the PDF e-book** (private, into `EBOOK_FILES_DIR`),
+  and a per-program **sales window** (`salesStartAt`/`salesEndAt`, WIB) that **suspends checkout once it
+  ends** (`/api/checkout` → `403`, landing page hides the form). `Product` gains 3 nullable columns;
+  new `lib/programs.ts` (pure `isOnSale`); admin CRUD `/api/admin/programs[/id]`. The Leads Report
+  **Program dropdown goes live** (filters metrics by `productId`); Active/Conv.Rate Active stay stubbed.
+  Added invariant #12. **Amended same day** to add **attachments**: a program may include extra PDFs
+  (`ProductAttachment`, e.g. a separate to-do-list) uploaded on create / add-removable on edit; on
+  purchase the buyer receives **e-book + all attachments**. Delivery reworked to one **`DeliveryItem`
+  per file** (snapshot at PAID; retry resends only unsent items) so exactly-once is now per-file
+  (invariant #3 updated). Program is also spec'd as the **future Challenge's reference entity** (§15).
+  Updated PRD (§9, §10, §12.2, §14→§12.2, §15, §16, §19.3, §20.2/.4/.5, new §20.11, changelog 0.8.0),
+  CLAUDE.md, PROGRESS.md. Build plan (9 steps) under "In progress". Next: implement (awaiting go-ahead).
 - 2026-06-05 — Responsive dashboard (PRD 0.7.6): new `DashboardShell` client wrapper owns the frame +
   all sidebar CSS; ≤768px the sidebar collapses to an off-canvas drawer (sticky top bar + hamburger +
   overlay), `Sidebar` now takes `open`/`onNavigate`. Login card fluid; Pengaturan tables scroll on

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { KpiCard } from './KpiCard';
 import { DataTable, type DataTableColumn } from './DataTable';
 import type { ReportData, DayMetrics } from '@/lib/report';
@@ -30,29 +30,47 @@ function defaultTo(): string {
   return d.toISOString().slice(0, 10);
 }
 
+type ProgramOption = { id: string; label: string };
+
 export function LeadsReport({ initial }: { initial: ReportData }) {
   const [data, setData] = useState<ReportData>(initial);
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(defaultTo);
+  const [programId, setProgramId] = useState('');
+  const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastUpdated] = useState(() => new Date().toLocaleString('id-ID'));
 
-  const fetchReport = useCallback(async (f: string, t: string) => {
+  useEffect(() => {
+    (async () => {
+      const res = await fetch('/api/admin/programs');
+      if (!res.ok) return;
+      const { programs: list } = await res.json();
+      setPrograms(list.map((p: { id: string; name: string; programName: string | null }) => ({
+        id: p.id,
+        label: p.programName || p.name,
+      })));
+    })();
+  }, []);
+
+  const fetchReport = useCallback(async (f: string, t: string, pid: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/report?from=${f}&to=${t}`);
+      const q = new URLSearchParams({ from: f, to: t });
+      if (pid) q.set('programId', pid);
+      const res = await fetch(`/api/admin/report?${q.toString()}`);
       if (res.ok) setData(await res.json());
     } finally {
       setLoading(false);
     }
   }, []);
 
-  function handleApply() { fetchReport(from, to); }
+  function handleApply() { fetchReport(from, to, programId); }
   function handleReset() {
     const f = defaultFrom();
     const t = defaultTo();
-    setFrom(f); setTo(t);
-    fetchReport(f, t);
+    setFrom(f); setTo(t); setProgramId('');
+    fetchReport(f, t, '');
   }
 
   const today = data.today;
@@ -127,8 +145,10 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
         </div>
         <div>
           <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginBottom: 3 }}>Program</label>
-          <select disabled style={{ border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 8px', fontSize: '0.875rem', background: '#f8fafc', color: '#94a3b8' }}>
-            <option>Diet90</option>
+          <select value={programId} onChange={e => setProgramId(e.target.value)}
+            style={{ border: '1px solid #cbd5e1', borderRadius: 4, padding: '4px 8px', fontSize: '0.875rem' }}>
+            <option value="">Semua program</option>
+            {programs.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>

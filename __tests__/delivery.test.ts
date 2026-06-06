@@ -1,4 +1,5 @@
-import { BACKOFF_MINUTES } from '@/lib/delivery';
+import { BACKOFF_MINUTES, buildDeliverySnapshot, allItemsSent } from '@/lib/delivery';
+import { DeliveryStatus } from '@prisma/client';
 import { readEbookAsBase64 } from '@/lib/files';
 import path from 'path';
 import fs from 'fs/promises';
@@ -47,5 +48,39 @@ describe('readEbookAsBase64 (F4 file safety)', () => {
 
   it('rejects an absolute path', async () => {
     await expect(readEbookAsBase64('/etc/passwd')).rejects.toThrow();
+  });
+});
+
+describe('buildDeliverySnapshot (D10 multi-file delivery)', () => {
+  const product = { filePath: 'ebook.pdf', fileName: 'E-book.pdf' };
+
+  it('puts the e-book first (sortOrder 0), then attachments re-indexed from 1', () => {
+    const snap = buildDeliverySnapshot(product, [
+      { filePath: 'b.pdf', fileName: 'B.pdf', sortOrder: 5 },
+      { filePath: 'a.pdf', fileName: 'A.pdf', sortOrder: 2 },
+    ]);
+    expect(snap.map(s => [s.kind, s.fileName, s.sortOrder])).toEqual([
+      ['ebook', 'E-book.pdf', 0],
+      ['attachment', 'A.pdf', 1], // sortOrder 2 comes before 5
+      ['attachment', 'B.pdf', 2],
+    ]);
+  });
+
+  it('returns just the e-book when there are no attachments', () => {
+    const snap = buildDeliverySnapshot(product, []);
+    expect(snap).toHaveLength(1);
+    expect(snap[0].kind).toBe('ebook');
+  });
+});
+
+describe('allItemsSent', () => {
+  it('is true only when every item is SENT', () => {
+    expect(allItemsSent([{ status: DeliveryStatus.SENT }, { status: DeliveryStatus.SENT }])).toBe(true);
+    expect(allItemsSent([{ status: DeliveryStatus.SENT }, { status: DeliveryStatus.FAILED }])).toBe(false);
+    expect(allItemsSent([{ status: DeliveryStatus.PENDING }])).toBe(false);
+  });
+
+  it('is false for an empty list (nothing to deliver should not look "complete")', () => {
+    expect(allItemsSent([])).toBe(false);
   });
 });

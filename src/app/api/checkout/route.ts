@@ -7,6 +7,7 @@ import { createSnapTransaction } from '@/lib/midtrans';
 import { toChatId } from '@/lib/phone';
 import { corsHeadersFor } from '@/lib/cors';
 import { checkRateLimit, clientIpFromHeaders } from '@/lib/rate-limit';
+import { isOnSale } from '@/lib/programs';
 
 /** CORS preflight: allow only origins on the AllowedOrigin whitelist (or the app's own). */
 export async function OPTIONS(req: NextRequest) {
@@ -58,6 +59,12 @@ export async function POST(req: NextRequest) {
   const product = await db.product.findUnique({ where: { slug: productSlug } });
   if (!product || !product.isActive) {
     return json({ error: 'Produk tidak ditemukan.' }, 404);
+  }
+
+  // 2b. Enforce the sales window — once a program's period ends (or before it starts),
+  // the e-book can no longer be bought (authoritative server gate, PRD §20.11).
+  if (!isOnSale(product)) {
+    return json({ error: 'Penjualan untuk produk ini sedang ditutup.' }, 403);
   }
 
   // 3. Upsert customer (by normalised whatsapp + email).

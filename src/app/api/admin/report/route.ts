@@ -6,6 +6,7 @@ import { getReport } from '@/lib/report';
 const querySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  programId: z.string().min(1).optional(), // filter metrics to one program (productId)
 });
 
 const MAX_RANGE_DAYS = 366;
@@ -38,6 +39,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const data = await getReport(from, to);
+  const data = await getReport(from, to, parsed.data.programId);
   return NextResponse.json(data);
 }

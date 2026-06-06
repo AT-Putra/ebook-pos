@@ -10,6 +10,44 @@ export const BACKOFF_MINUTES = [1, 5, 15, 60, 360]; // exponential backoff sched
 // (e.g. the process crashed mid-send) and reclaimed for retry by the cron.
 const STALE_PROCESSING_MINUTES = 10;
 
+/** A file to deliver, snapshotted from the product at purchase time. */
+export type DeliverySnapshotItem = {
+  kind: 'ebook' | 'attachment';
+  filePath: string;
+  fileName: string;
+  sortOrder: number;
+};
+
+type ProductLike = { filePath: string; fileName: string };
+type AttachmentLike = { filePath: string; fileName: string; sortOrder: number };
+
+/** Pure: builds the ordered list of files for a delivery — e-book first (sortOrder 0),
+ *  then attachments by their own sortOrder (re-indexed from 1 to keep them stable). */
+export function buildDeliverySnapshot(
+  product: ProductLike,
+  attachments: AttachmentLike[],
+): DeliverySnapshotItem[] {
+  const ebook: DeliverySnapshotItem = {
+    kind: 'ebook',
+    filePath: product.filePath,
+    fileName: product.fileName,
+    sortOrder: 0,
+  };
+  const sorted = [...attachments].sort((a, b) => a.sortOrder - b.sortOrder);
+  const items: DeliverySnapshotItem[] = sorted.map((a, i) => ({
+    kind: 'attachment',
+    filePath: a.filePath,
+    fileName: a.fileName,
+    sortOrder: i + 1,
+  }));
+  return [ebook, ...items];
+}
+
+/** Pure: true when every item has been delivered. */
+export function allItemsSent(items: { status: DeliveryStatus }[]): boolean {
+  return items.length > 0 && items.every(i => i.status === DeliveryStatus.SENT);
+}
+
 /** Delay before the next retry, given how many attempts have now been made.
  *  attemptsSoFar=1 → first retry uses BACKOFF_MINUTES[0]. */
 function nextRetryAt(attemptsSoFar: number): Date | null {
@@ -20,79 +58,139 @@ function nextRetryAt(attemptsSoFar: number): Date | null {
   return d;
 }
 
+/** Creates the DeliveryItem rows for a delivery if it has none yet (snapshot at PAID). */
+async function ensureDeliveryItems(deliveryId: string): Promise<void> {
+  const count = await db.deliveryItem.count({ where: { deliveryId } });
+  if (count > 0) return;
+
+  const delivery = await db.delivery.findUniqueOrThrow({
+    where: { id: deliveryId },
+    include: { order: { include: { product: { include: { attachments: true } } } } },
+  });
+  const { product } = delivery.order;
+  const snapshot = buildDeliverySnapshot(product, product.attachments);
+
+  await db.deliveryItem.createMany({
+    data: snapshot.map(s => ({
+      deliveryId,
+      kind: s.kind,
+      filePath: s.filePath,
+      fileName: s.fileName,
+      sortOrder: s.sortOrder,
+    })),
+  });
+}
+
 /**
- * Attempts to send an e-book delivery.
- * Exactly-once: atomically claims the row (PENDING/FAILED → PROCESSING) so two
- * concurrent callers can't both send. A SENT or already-PROCESSING row is skipped.
+ * Attempts to deliver an order's files (e-book + attachments).
+ * Exactly-once per file: atomically claims the Delivery (PENDING/FAILED → PROCESSING)
+ * so two concurrent callers can't both send, then sends each DeliveryItem not yet SENT.
+ * A retry re-sends only the not-yet-SENT items; the Delivery is SENT only once all are.
  */
 export async function attemptDelivery(deliveryId: string): Promise<void> {
-  // Atomic claim — only one caller can move PENDING/FAILED → PROCESSING.
-  // Replaces the previous read-then-write check, which had a TOCTOU race that
-  // could let duplicate webhooks double-send the e-book (invariant #3).
+  // Atomic claim — only one caller can move PENDING/FAILED → PROCESSING (invariant #3).
   const claim = await db.delivery.updateMany({
     where: { id: deliveryId, status: { in: [DeliveryStatus.PENDING, DeliveryStatus.FAILED] } },
     data: { status: DeliveryStatus.PROCESSING },
   });
   if (claim.count === 0) return; // already SENT/PROCESSING, or row not found
 
+  await ensureDeliveryItems(deliveryId);
+
   const delivery = await db.delivery.findUniqueOrThrow({
     where: { id: deliveryId },
     include: {
-      order: {
-        include: {
-          customer: true,
-          product: true,
-        },
-      },
+      items: { orderBy: { sortOrder: 'asc' } },
+      order: { include: { customer: true, product: true } },
     },
   });
 
-  const { order } = delivery;
+  const { order, items } = delivery;
   const { customer, product } = order;
+  const chatId = toChatId(customer.whatsapp);
 
-  try {
-    const base64Data = await readEbookAsBase64(product.filePath);
-    const chatId = toChatId(customer.whatsapp);
+  let anyFailed = false;
 
-    const result = await sendFile({
-      chatId,
-      mimeType: product.mimeType,
-      filename: product.fileName,
-      base64Data,
-      caption: `Terima kasih atas pembelianmu, ${customer.name}! 🎉 Berikut e-book kamu: *${product.name}*`,
-    });
+  for (const item of items) {
+    if (item.status === DeliveryStatus.SENT) continue; // never re-send a delivered file
 
+    const caption =
+      item.kind === 'ebook'
+        ? `Terima kasih atas pembelianmu, ${customer.name}! 🎉 Berikut e-book kamu: *${product.name}*`
+        : `📎 Lampiran untuk *${product.name}*: ${item.fileName}`;
+
+    try {
+      const base64Data = await readEbookAsBase64(item.filePath);
+      const result = await sendFile({
+        chatId,
+        mimeType: item.kind === 'ebook' ? product.mimeType : 'application/pdf',
+        filename: item.fileName,
+        base64Data,
+        caption,
+      });
+
+      await db.deliveryItem.update({
+        where: { id: item.id },
+        data: {
+          status: DeliveryStatus.SENT,
+          wahaMessageId: result.id,
+          sentAt: new Date(),
+          attempts: { increment: 1 },
+          lastError: null,
+        },
+      });
+    } catch (err) {
+      anyFailed = true;
+      await db.deliveryItem.update({
+        where: { id: item.id },
+        data: {
+          status: DeliveryStatus.FAILED,
+          attempts: { increment: 1 },
+          lastError: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+  }
+
+  // Roll the per-item results up to the Delivery.
+  const fresh = await db.deliveryItem.findMany({ where: { deliveryId } });
+
+  if (!anyFailed && allItemsSent(fresh)) {
+    // First message id kept on the Delivery for back-compat.
+    const first = fresh.sort((a, b) => a.sortOrder - b.sortOrder)[0];
     await db.delivery.update({
       where: { id: deliveryId },
       data: {
         status: DeliveryStatus.SENT,
-        wahaMessageId: result.id,
+        wahaMessageId: first?.wahaMessageId ?? null,
         sentAt: new Date(),
         attempts: { increment: 1 },
         lastError: null,
       },
     });
-  } catch (err) {
-    const newAttempts = delivery.attempts + 1;
-    const isTerminal = newAttempts >= delivery.maxAttempts;
-    const retryAt = isTerminal ? null : nextRetryAt(newAttempts);
+    return;
+  }
 
-    await db.delivery.update({
-      where: { id: deliveryId },
-      data: {
-        status: isTerminal ? DeliveryStatus.FAILED : DeliveryStatus.PENDING,
-        attempts: { increment: 1 },
-        lastError: err instanceof Error ? err.message : String(err),
-        nextRetryAt: retryAt,
-      },
-    });
+  // At least one file still pending/failed → schedule a retry (or go terminal).
+  const newAttempts = delivery.attempts + 1;
+  const isTerminal = newAttempts >= delivery.maxAttempts;
+  const retryAt = isTerminal ? null : nextRetryAt(newAttempts);
+  const lastError = fresh.find(i => i.status === DeliveryStatus.FAILED)?.lastError ?? null;
 
-    if (isTerminal) {
-      console.error(
-        `[delivery] Terminal failure for delivery ${deliveryId} (order ${order.orderCode}):`,
-        err,
-      );
-    }
+  await db.delivery.update({
+    where: { id: deliveryId },
+    data: {
+      status: isTerminal ? DeliveryStatus.FAILED : DeliveryStatus.PENDING,
+      attempts: { increment: 1 },
+      lastError,
+      nextRetryAt: retryAt,
+    },
+  });
+
+  if (isTerminal) {
+    console.error(
+      `[delivery] Terminal failure for delivery ${deliveryId} (order ${order.orderCode}): ${lastError}`,
+    );
   }
 }
 

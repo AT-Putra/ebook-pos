@@ -35,9 +35,10 @@ done, idempotent, and recoverable.
 - `src/app/api/cron/process-deliveries/route.ts` — retry worker
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
-- `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`)
+- `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload)
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`)
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit; APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`
+- `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
 - `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
@@ -45,8 +46,10 @@ done, idempotent, and recoverable.
    using the EXACT `gross_amount` string from the payload. Reject mismatches. Log every notification.
 2. **Idempotent + forward-only** order status updates. Duplicate/out-of-order notifications must not
    double-update or trigger a second delivery. A late `pending` after `settlement` is ignored.
-3. **Exactly-once delivery**: one `Delivery` row per order (`orderId` unique). Never send the e-book
-   twice automatically. Delivery fires only on transition to `PAID` with no existing `SENT` delivery.
+3. **Exactly-once delivery (per file)**: one `Delivery` row per order (`orderId` unique); within it one
+   `DeliveryItem` per file (e-book + each attachment, §20.11). Delivery fires only on the `PAID`
+   transition; each item is sent at most once — a retry resends only items not yet `SENT`, and the
+   `Delivery` is `SENT` only when every item is `SENT`. Never send any file twice automatically.
 4. **E-book is private**: stored under `EBOOK_FILES_DIR`, OUTSIDE the web root. NEVER under `public/`,
    never served statically, never given to WAHA as a URL.
 5. **WAHA over HTTPS only**: `WAHA_BASE_URL` must start with `https://`; the app refuses to start /
@@ -62,6 +65,11 @@ done, idempotent, and recoverable.
 11. **Checkout rate limit** (`lib/rate-limit.ts`, `RateLimitConfig` singleton, Pengaturan UI):
     per-IP fixed window, in-memory (per container), configurable + disableable; `429` + `Retry-After`
     when exceeded. Config cached 10s; admin PUT clears the cache.
+12. **Sales window (`lib/programs.ts` `isOnSale`)**: a program with a `salesEndAt` in the past (or a
+    future `salesStartAt`, or `isActive=false`) is NOT buyable — `/api/checkout` returns `403` and
+    creates no order; the `[slug]` page hides the form. Server check is authoritative. Dates are WIB
+    (start = 00:00:00, end = 23:59:59.999 inclusive); null bound = unbounded. Uploaded PDFs follow
+    invariant #4 (private, traversal-safe name, atomic write, never `public/`).
 
 ## Status mapping (Midtrans → OrderStatus)
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·
@@ -70,14 +78,20 @@ Delivery happens ONLY on PAID.
 **Transitions** (`lib/orders.ts` `canTransition`): explicit allow-map, NOT a linear rank. PENDING→any
 final; **PAID→REFUNDED only** (never overwritten by a late failure); failure/refund states terminal;
 same→same is a no-op. **Delivery** (`lib/delivery.ts`): `attemptDelivery` atomically claims
-`PENDING/FAILED→PROCESSING` (no double-send); cron reclaims stale `PROCESSING` (>10 min); backoff
-`[1,5,15,60,360]` min, first retry at 1 min.
+`PENDING/FAILED→PROCESSING` (no double-send), then sends each not-yet-`SENT` `DeliveryItem` in
+`sortOrder` (e-book first, then attachments); `Delivery`→`SENT` only when all items sent. Cron reclaims
+stale `PROCESSING` (>10 min); backoff `[1,5,15,60,360]` min, first retry at 1 min. `DeliveryItem` rows
+are snapshotted from the product's e-book + `ProductAttachment`s when the `Delivery` is created on PAID.
 
 ## Build order (vertical slices — see PRD §19.3)
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →
 F3 webhook → F4 WAHA base64 delivery → F5 retry/backoff → F6 admin+resend → SLC polish.
-**Done & deployed (F1–F7 + polish + D1–D3 dashboard).** In progress: **D3.1** dashboard UX polish —
-restyled KPI widgets + reusable `DataTable` (TanStack Table: sort/search/paginate) with CSV+PDF export (§20.8).
+**Done & deployed (F1–F7 + polish + D1–D3 + D3.1 dashboard + D8 CORS + D9 rate limit).**
+**Built, pending deploy: D10 Program management** (§20.11) — program/product config page + e-book PDF
+upload + **attachment PDFs** (delivered with the e-book) + per-program **sales window** (checkout `403`
+once `salesEndAt` passes) + **live Program filter** on the Leads Report. Multi-file delivery via
+`DeliveryItem` (per-file exactly-once). Deploy needs the new migration + Caddy `request_body 40MB`.
+Program is the entity the future **Challenge** module will reference (don't build the challenge now).
 (Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 Laporan export page.)
 Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is updated.
 
@@ -85,8 +99,13 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - Mockup: `docs/mockups/cms.png`. Indonesian UI. Login-gated `/admin/*`.
 - **Lead** = any checkout submission (`Order`, any status); **Purchase** = `Order.status=PAID`.
   Metrics come from existing `Order`/`Delivery` — see §20.4 for exact, WIB-bucketed definitions.
-- **Active / Conv.Rate Active / Program** belong to the DEFERRED Challenge module — render per mockup
-  but STUB them (`0` / `—`). Do NOT fabricate data or build the challenge module now.
+- **Active / Conv.Rate Active** belong to the DEFERRED Challenge module — render per mockup but STUB
+  them (`0` / `—`). Do NOT fabricate data or build the challenge module now.
+- **Program** is NOT the challenge — it is the sellable-e-book config (D10, §20.11): main e-book +
+  optional **attachment PDFs** + sales window. The sidebar Program page and the Leads Report **Program
+  dropdown are real/live** as of D10: the dropdown filters every metric by program/product
+  (`/api/admin/report?programId=…`); "Semua program" = no filter. The future **Challenge** module will
+  reference a program (`Contest.programId = Product.id`, entry gated on a PAID order) — keep it queryable.
 - Auth: multi-user username+password, scrypt via `node:crypto`, DB-backed `Session` (HTTP-only cookie).
   First account via `npm run admin:create`. Never commit a default password. Put metric math in pure
   functions in `lib/report.ts` (unit-tested, no DB).

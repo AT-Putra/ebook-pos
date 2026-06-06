@@ -56,7 +56,8 @@ export async function POST(req: NextRequest, { params }: Props) {
     });
   }
 
-  // Reset delivery to PENDING so it will be picked up.
+  // Reset delivery (and every file item) to PENDING so the whole package is re-sent.
+  // A manual operator resend is explicit — exactly-once applies to the automatic path.
   await db.delivery.update({
     where: { id },
     data: {
@@ -64,6 +65,10 @@ export async function POST(req: NextRequest, { params }: Props) {
       nextRetryAt: null,
       lastError: null,
     },
+  });
+  await db.deliveryItem.updateMany({
+    where: { deliveryId: id },
+    data: { status: DeliveryStatus.PENDING, sentAt: null, lastError: null },
   });
 
   // Attempt immediately.

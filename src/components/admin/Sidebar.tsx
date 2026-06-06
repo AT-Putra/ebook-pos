@@ -9,7 +9,7 @@ const NAV = [
   { label: 'Purchase', href: '/admin/purchases', icon: '🛒' },
   { label: 'Users / Active', href: '/admin/active', icon: '🔥' },
   { label: 'WA Logs', href: '/admin/wa-logs', icon: '💬' },
-  { label: 'Program', href: '/admin/program', icon: '🎯' },
+  { label: 'Program', href: '/admin/program', icon: '🎯', ready: true },
   { label: 'Laporan', href: '/admin/reports', icon: '📄' },
   { label: 'Pengaturan', href: '/admin/settings', icon: '⚙️', ready: true },
 ];

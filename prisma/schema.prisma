@@ -17,9 +17,27 @@ model Product {
   fileName    String // filename shown to the buyer, e.g. "my-ebook.pdf"
   mimeType    String   @default("application/pdf")
   isActive    Boolean  @default(true)
+  programName  String? // operator-facing program label, e.g. "Diet90"
+  salesStartAt DateTime? // sales window start (WIB); null = no lower bound
+  salesEndAt   DateTime? // sales window end (inclusive, WIB); after this, checkout is suspended
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   orders      Order[]
+  attachments ProductAttachment[]
+}
+
+model ProductAttachment {
+  id        String   @id @default(cuid())
+  productId String
+  filePath  String // relative to EBOOK_FILES_DIR, private (like the e-book)
+  fileName  String // buyer-facing name
+  mimeType  String   @default("application/pdf")
+  sizeBytes Int?
+  sortOrder Int      @default(0) // delivery order after the main e-book
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 model Customer {
@@ -105,8 +123,28 @@ model Delivery {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   order         Order          @relation(fields: [orderId], references: [id])
+  items         DeliveryItem[]
 
   @@index([status, nextRetryAt])
+}
+
+model DeliveryItem {
+  id            String         @id @default(cuid())
+  deliveryId    String
+  kind          String // "ebook" | "attachment"
+  filePath      String // snapshot of the file at purchase time (relative to EBOOK_FILES_DIR)
+  fileName      String // buyer-facing name sent over WAHA
+  sortOrder     Int            @default(0) // 0 = e-book first, then attachments
+  status        DeliveryStatus @default(PENDING)
+  attempts      Int            @default(0)
+  wahaMessageId String?
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  delivery      Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, status])
 }
 
 model AdminUser {

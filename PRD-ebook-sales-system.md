@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.7.6 |
-| Status | Core flow + dashboard (D1–D3, D3.1) + CORS (D8) + rate limit (D9), responsive, built & deployed |
+| Version | 0.8.0 |
+| Status | Core flow + dashboard (D1–D3, D3.1) + CORS (D8) + rate limit (D9), responsive, built & deployed; **Program management (D10) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
-| Last updated | 2026-06-05 |
+| Last updated | 2026-06-06 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.8.0** (2026-06-06) — **Built (green: 118 tests, tsc, build; pending VPS deploy + migration).** Added **§20.11 Program management (slice D10)**: a login-gated **Program** page (`/admin/program`) to configure the sellable e-books. It lists programs in a TanStack `DataTable` (id, product name, program name, sales period, price, status) with an **Add Program** button and per-row **Edit**; the add/edit form can **upload the PDF e-book**, written privately into `EBOOK_FILES_DIR` (never under `public/`, never served statically — invariant #4). Each program carries a **sales window** (`salesStartAt`/`salesEndAt`, WIB); **once the period ends the e-book can no longer be bought** — the landing page hides the form and `/api/checkout` rejects with `403`. `Product` gains `programName`, `salesStartAt`, `salesEndAt` (§9). The **Program** dropdown on the Leads Report becomes **live** — it filters metrics by program/product via `/api/admin/report?programId=…` (§20.4/§20.5); the challenge-tied **Active / Conv. Rate Active** KPIs stay stubbed (§20.2). New `lib/programs.ts` (pure `isOnSale` / sales-status) + private upload handling in `lib/files.ts`; admin CRUD at `/api/admin/programs[/{id}]`. A program may also carry **extra attachment PDFs** (`ProductAttachment`, e.g. a separate to-do-list PDF) uploadable on create and add/removable on edit; on purchase the buyer receives the **e-book + every attachment** over WhatsApp. To keep delivery exactly-once across multiple files, `Delivery` now has one **`DeliveryItem` per file** (e-book + each attachment), snapshotted at purchase; a retry re-sends only the items not yet `SENT` (invariant #3). The **Program** is the entity the future **Challenge module (§15)** will reference.
 - **0.7.6** (2026-06-05) — Dashboard made **responsive**: new `DashboardShell` wraps the sidebar + content; on ≤768px the sidebar collapses into an off-canvas drawer with a sticky top bar + hamburger (overlay to dismiss). Sidebar CSS consolidated into the shell's `<style>` block. Login card and the Pengaturan tables made mobile-friendly (fluid width / horizontal scroll). KPI cards and DataTable already wrapped/scrolled.
 - **0.7.5** (2026-06-05) — Added **§20.10 Checkout rate limit (slice D9)**: per-IP fixed-window limit on `/api/checkout`, **configurable and disableable** from the Pengaturan menu. New `RateLimitConfig` singleton table; `lib/rate-limit.ts` (in-memory per-IP buckets + cached config); `/api/checkout` returns `429` + `Retry-After` when exceeded; admin config at `GET/PUT /api/admin/rate-limit`.
 - **0.7.4** (2026-06-05) — Added **§20.9 CORS domain allowlist (slice D8)** so external landing pages on other domains can POST to `/api/checkout` from the browser. New `AllowedOrigin` table; `/api/checkout` gains an `OPTIONS` preflight + per-response `Access-Control-Allow-Origin` echoed only for whitelisted (or same-app) origins; admin CRUD at `/api/admin/origins`; managed from the **Pengaturan** dashboard page. CORS is checked **live** against the DB (no restart needed).
@@ -253,9 +254,26 @@ model Product {
   fileName    String                    // filename shown to the buyer, e.g. "my-ebook.pdf"
   mimeType    String   @default("application/pdf")
   isActive    Boolean  @default(true)
+  programName  String?                  // operator-facing program label, e.g. "Diet90" (§20.11)
+  salesStartAt DateTime?                // sales window start (WIB); null = no lower bound
+  salesEndAt   DateTime?                // sales window end (inclusive, WIB); after this checkout is suspended (§20.11)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   orders      Order[]
+  attachments ProductAttachment[]       // extra private PDFs delivered with the e-book (§20.11)
+}
+
+model ProductAttachment {                // additional private PDF(s) given to the buyer after purchase (§20.11)
+  id        String   @id @default(cuid())
+  productId String
+  filePath  String                       // relative to EBOOK_FILES_DIR, e.g. "<cuid>.pdf" (private, like the e-book)
+  fileName  String                       // buyer-facing name, e.g. "To-Do List Tantangan.pdf"
+  mimeType  String   @default("application/pdf")
+  sizeBytes Int?
+  sortOrder Int      @default(0)         // delivery order after the main e-book
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId])
 }
 
 model Customer {
@@ -315,17 +333,36 @@ model Delivery {
   id            String         @id @default(cuid())
   orderId       String         @unique     // one delivery per order => no double-send
   channel       String         @default("whatsapp")
-  status        DeliveryStatus @default(PENDING)
+  status        DeliveryStatus @default(PENDING)   // SENT only when every DeliveryItem is SENT
   attempts      Int            @default(0)
   maxAttempts   Int            @default(5)
   nextRetryAt   DateTime?
-  wahaMessageId String?
+  wahaMessageId String?                            // first/main message id (kept for back-compat)
   lastError     String?
   sentAt        DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   order         Order          @relation(fields: [orderId], references: [id])
+  items         DeliveryItem[]                     // one per file (e-book + each attachment) (§20.11)
   @@index([status, nextRetryAt])
+}
+
+model DeliveryItem {                                // per-file send state — exactly-once per file (§20.11, invariant #3)
+  id            String         @id @default(cuid())
+  deliveryId    String
+  kind          String                             // "ebook" | "attachment"
+  filePath      String                             // snapshot of the file at purchase time (relative to EBOOK_FILES_DIR)
+  fileName      String                             // buyer-facing name sent over WAHA
+  sortOrder     Int            @default(0)          // 0 = e-book first, then attachments
+  status        DeliveryStatus @default(PENDING)    // PENDING → SENT | FAILED (no PROCESSING needed; the Delivery claims)
+  attempts      Int            @default(0)
+  wahaMessageId String?
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  delivery      Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  @@index([deliveryId, status])
 }
 
 // ── Dashboard / CMS (§20) ──────────────────────────────────────────────
@@ -390,8 +427,9 @@ ebook-sales/
 │   │   ├── admin/                               # operator dashboard / CMS (§20)
 │   │   │   ├── login/page.tsx                   # login form
 │   │   │   ├── layout.tsx                       # shell: sidebar nav + auth guard
-│   │   │   └── page.tsx                         # Leads Report (the mockup)
-│   │   │       # later slices: leads/, purchases/, active/, wa-logs/, program/, reports/, settings/
+│   │   │   ├── page.tsx                         # Leads Report (the mockup)
+│   │   │   └── program/page.tsx                 # Program management — list/add/edit, PDF upload [D10]
+│   │   │       # later slices: leads/, purchases/, active/, wa-logs/, reports/
 │   │   └── api/
 │   │       ├── checkout/route.ts                # POST: create order + Snap token
 │   │       ├── webhooks/midtrans/route.ts       # POST: payment notification
@@ -399,7 +437,9 @@ ebook-sales/
 │   │       └── admin/
 │   │           ├── auth/login/route.ts          # POST: username+password → session cookie
 │   │           ├── auth/logout/route.ts         # POST: clear session
-│   │           ├── report/route.ts              # GET: dashboard metrics (today + 14-day series)
+│   │           ├── report/route.ts              # GET: dashboard metrics (today + 14-day series; ?programId filter)
+│   │           ├── programs/route.ts            # GET list / POST create (+PDF upload, multipart)  [D10]
+│   │           ├── programs/[id]/route.ts       # PATCH update (+optional PDF) / DELETE            [D10]
 │   │           ├── orders/route.ts              # GET: list/filter orders
 │   │           └── deliveries/[id]/resend/route.ts  # POST: manual re-send
 │   ├── components/
@@ -412,7 +452,8 @@ ebook-sales/
 │   │   ├── orders.ts        # order creation + status transitions
 │   │   ├── midtrans.ts      # Snap create + signature verify + status map
 │   │   ├── waha.ts          # WAHA client (sendFile / sendText)
-│   │   ├── files.ts         # resolve + read e-book from EBOOK_FILES_DIR (private)
+│   │   ├── files.ts         # resolve + read e-book from EBOOK_FILES_DIR (private); save uploaded PDF [D10]
+│   │   ├── programs.ts      # pure on-sale / sales-window logic (isOnSale, salesStatus)        [D10]
 │   │   ├── phone.ts         # WhatsApp number normalization
 │   │   ├── delivery.ts      # idempotent send + retry orchestration
 │   │   ├── auth.ts          # admin token + cron secret guards
@@ -535,6 +576,10 @@ before delivering, since frontend callbacks are user-modifiable.
   too large for the provider's limit, it cannot be delivered this way.
 - Optionally also `POST /api/sendText` for a friendly intro message before the file.
 - A successful response includes a message id → store as `wahaMessageId`.
+- **Multiple files (D10, §20.11):** a program may include attachment PDFs, so a single delivery sends
+  the **e-book + each attachment** as separate `sendFile` calls (e-book first). State is tracked
+  per-file via `DeliveryItem`; a retry resends only items not yet `SENT`, so no file goes twice and the
+  `Delivery` is `SENT` only once every item succeeds.
 - **Session health**: the WhatsApp number is linked once in the **provider's dashboard** (no QR
   handling on our side). If the provider's session drops, sends fail → deliveries go to retry.
   Surface send failures to the operator so a re-link in the provider dashboard can be triggered.
@@ -605,20 +650,25 @@ When the challenge is added, introduce (without changing existing tables):
 **Extension seam in this build**: do not couple delivery logic to order creation tightly; keep
 `Customer`↔`Order` clean and queryable by `productId` + `status = PAID`.
 
+**Program link (added 2026-06-06, D10 §20.11):** the contest will reference a **program** — i.e. a
+`Product` (now carrying `programName`, a sales window, and attachments). `Contest.programId =
+Product.id`; eligibility = a `PAID` `Order` for that `productId`. The Program management page (§20.11)
+is where these programs are configured; the deferred Challenge plugs into them later without schema churn.
+
 ---
 
 ## 16. Open Questions `[OPEN]`
 
-1. ~~**Single product or catalog?**~~ **Resolved (2026-06-04):** single product for v1 (slug `lose-weight-challenge-1st-edition`, IDR 75,000). Schema stays catalog-capable.
+1. ~~**Single product or catalog?**~~ **Resolved (2026-06-04):** single product for v1 (slug `lose-weight-challenge-1st-edition`, IDR 75,000). Schema stays catalog-capable. **Updated (2026-06-06, D10 §20.11):** the dashboard now manages **multiple programs** (a small catalog) — each program is a `Product` with its own slug, PDF, price, and sales window. The buyer flow stays **per-slug** (one landing page per program).
 2. **Tracking ID semantics** — affiliate code, ad-campaign id, or both? Affects future reporting (not behaviour now).
 3. **Email fallback** — if WhatsApp delivery permanently fails, should the system also email the e-book? (Currently out of scope.)
 4. **Data retention period** for buyer PII (UU PDP).
-5. **3rd-party WAHA provider** — which provider, its **max request body size** (limits e-book size for base64), whether it supports **IP allowlisting**, its auth header, and whether a data-processing agreement is needed.
+5. **3rd-party WAHA provider** — which provider, its **max request body size** (limits e-book size for base64), whether it supports **IP allowlisting**, its auth header, and whether a data-processing agreement is needed. **(D10 note):** the upload endpoint caps each PDF at **32 MB** (`MAX_UPLOAD_BYTES`); base64 makes that ~43 MB to WAHA, so confirm the provider allows it, and set Caddy `request_body { max_size 40MB }` on the proxied app so the upload itself isn't rejected at the edge.
 6. ~~**Checkout failure policy?**~~ **Resolved (2026-06-04):** mark the order **FAILED** (not delete) — preserves the audit trail.
 
 **Dashboard decisions (resolved 2026-06-05 — see §20.2):**
 7. ~~**What is a "Lead"?**~~ Every checkout submission (an `Order`, any status). **Purchase** = `Order.status = PAID`. No new table.
-8. ~~**What does "Active" count?**~~ Challenge-program participants — **depends on the deferred Challenge module (§15)**, so it is rendered in the dashboard but **stubbed (0 / "—")** until that module is built. Same for the **Program** filter (`Diet90` is a placeholder).
+8. ~~**What does "Active" count?**~~ Challenge-program participants — **depends on the deferred Challenge module (§15)**, so **Active / Conv. Rate Active** are rendered in the dashboard but **stubbed (0 / "—")** until that module is built. **Resolved (2026-06-06, D10):** the **Program** sidebar page + Leads Report dropdown are a **separate, real** concept (the sellable-e-book configuration, §20.11) — not the challenge. The dropdown is now **live** and filters report metrics by program/product.
 9. ~~**Dashboard login?**~~ **Multi-user username + password**, DB-backed sessions (`AdminUser` + `Session`).
 10. **WA Logs accuracy** `[OPEN]` — per-send-attempt timestamps are not stored today (only the `Delivery` row). A `DeliveryAttempt` audit table is recommended when the **WA Logs** page (slice D5) is built; dashboard v1 derives WA counts from `Delivery` status (§20.4).
 
@@ -806,6 +856,9 @@ Leads Report UI) are built, tested, and deployed; the stack was upgraded to the 
 sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF export (§20.8).
 **Done:** **D8** CORS domain allowlist (§20.9) · **D9** checkout rate limit (§20.10) — both managed in
 the Pengaturan menu.
+**Specced, building next:** **D10** Program management (§20.11) — product/program configuration page
+with PDF upload, a per-program **sales window** that suspends checkout when it ends, and a **live
+Program filter** on the Leads Report.
 Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
 **D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
 per-table CSV/PDF export already ships in D3.1).
@@ -839,8 +892,11 @@ module is **additive** — it must not change the buyer-facing flow or any §1�
   No new "lead" table; metrics are computed from existing `Order` / `Delivery` data.
 - **Active** and **Conv. Rate Active** = participants in the **challenge program** — which is the
   **deferred Challenge module (§15)**. Until that module exists, these render in the UI per the mockup
-  but are **stubbed** (display `0` / `—`). The **Program** dropdown (`Diet90`) is a **placeholder**
-  and does not filter; the system stays single-product for now.
+  but are **stubbed** (display `0` / `—`).
+- **Program** (the sidebar page **and** the Leads Report dropdown) = the **sellable-e-book
+  configuration** (slice D10, §20.11) — a different concept from the challenge. As of **0.8.0** the
+  dropdown is **live**: it filters the report by program/product. Before D10 it was a disabled `Diet90`
+  placeholder and the system was single-product.
 - **Auth** = multi-user **username + password** with DB-backed sessions (`AdminUser` + `Session`).
 
 ### 20.3 Authentication & sessions (slice D1)
@@ -883,6 +939,9 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
   fixtures (cover zero-division, empty days, and WIB day-boundary cases) without a live DB.
 - v1 uses live grouped queries (`GROUP BY date`); volume is low. A daily rollup table is a future
   optimization, not needed now.
+- **Program filter (D10):** every metric optionally scopes to a single program by threading a
+  `productId` into the `Order` (and, via `Order`, `Delivery`) `where` clauses. Omitted ⇒ all programs.
+  The pure `report.ts` helpers take an optional `productId` arg; the API exposes it as `?programId=`.
 - **WA accuracy caveat:** only the `Delivery` row is timestamped, not each retry attempt, so "Total WA"
   counts deliveries by terminal state, not raw send attempts. Accurate per-attempt logs arrive with the
   `DeliveryAttempt` table in slice D5 (WA Logs) — see §16 Q10.
@@ -897,8 +956,9 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
 **API:**
 - `POST /api/admin/auth/login` — body `{ username, password }` → sets `admin_session` cookie; `200`/`401`.
 - `POST /api/admin/auth/logout` — clears cookie + deletes session; `200`.
-- `GET /api/admin/report?from=YYYY-MM-DD&to=YYYY-MM-DD` — `requireAdmin` (cookie or bearer). Range
-  capped at **366 days** (`400` otherwise). Returns:
+- `GET /api/admin/report?from=YYYY-MM-DD&to=YYYY-MM-DD[&programId=<productId>]` — `requireAdmin`
+  (cookie or bearer). Range capped at **366 days** (`400` otherwise). `programId` (optional) scopes
+  every metric to one program/product; omitted ⇒ all programs. Returns:
   ```json
   {
     "today": { "date": "2026-06-01", "leads": 250, "purchase": 38, "convRate": 0.152,
@@ -908,6 +968,18 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
                   "active": 0, "convRateActive": 0, "totalWa": 0, "sukses": 0, "failed": 0 } ]
   }
   ```
+- **Program management (D10, all `requireAdmin`):**
+  - `GET /api/admin/programs` — list every program/product with sales window + computed sale status.
+  - `POST /api/admin/programs` — `multipart/form-data`: `name`, `programName`, `slug`, `priceIdr`,
+    `description?`, `salesStartAt?`, `salesEndAt?`, a required e-book PDF `file`, and zero or more
+    `attachments` PDFs. Saves the PDFs privately and creates the `Product` (+`ProductAttachment` rows).
+    `409` on duplicate slug, `422` on invalid input / non-PDF / oversized.
+  - `PATCH /api/admin/programs/{id}` — update any field above, optionally **replace** the e-book PDF,
+    and **add** attachments (multipart). Same validation. Toggling `isActive` is allowed here.
+  - `POST /api/admin/programs/{id}/attachments` — multipart, one or more PDFs → new `ProductAttachment` rows.
+  - `DELETE /api/admin/programs/{id}/attachments/{attachmentId}` — remove an attachment (unlink its file).
+  - `DELETE /api/admin/programs/{id}` — only when the program has **zero orders** (else `409` — tell
+    the operator to deactivate instead, preserving the order/audit history).
 - Existing `GET /api/admin/orders` and `POST /api/admin/deliveries/{id}/resend` stay (now also accept
   session auth, not only the bearer token).
 
@@ -1032,3 +1104,112 @@ operator (since legitimate campaigns may burst).
 
 **UI:** the **Pengaturan** page gains a Rate Limit card (`RateLimitSettings.tsx`) — enable toggle +
 max requests + window, with a Save button.
+
+### 20.11 Program management (slice D10)
+A login-gated page to **configure the sellable e-books** ("programs"). Each program is a `Product`
+row (the system stays catalog-capable) extended with a **program label** and a **sales window**.
+This is the real meaning of the **Program** sidebar item and the Leads Report dropdown — it is **not**
+the deferred Challenge module (Active / Conv. Rate Active stay stubbed, §20.2).
+
+**Data (`Product`, §9 — three new nullable columns, no breaking change):**
+- `programName String?` — operator-facing program label (e.g. `Diet90`). Distinct from `name` (the
+  e-book/product title shown to the buyer).
+- `salesStartAt DateTime?` / `salesEndAt DateTime?` — the **sales period**. The operator picks dates;
+  the API stores `salesStartAt` = **WIB 00:00:00** of the start date and `salesEndAt` = **WIB 23:59:59.999**
+  of the end date (inclusive). `null` = unbounded on that side. Existing seeded products (both null)
+  remain always-on-sale.
+
+**Data (`ProductAttachment`, §9 — new model):** zero or more **extra private PDFs** per program,
+delivered to the buyer **together with the main e-book** after purchase (e.g. the weight-loss program's
+separate *to-do-list* PDF). `productId`, `filePath` (private, like the e-book), `fileName` (buyer-facing),
+`sortOrder`. Stored in `EBOOK_FILES_DIR` exactly like the e-book — same privacy rules (invariant #4).
+
+**Sales-window enforcement (`src/lib/programs.ts` — pure, unit-tested):**
+- `isOnSale(product, now)` ⇒ `true` iff `isActive` **and** `now ≥ salesStartAt` (or null) **and**
+  `now ≤ salesEndAt` (or null). `salesStatus(product, now)` ⇒ `'inactive' | 'scheduled' | 'open' |
+  'closed'` for display.
+- **When the period has ended (or not yet started), the e-book can no longer be bought:**
+  - `src/app/[slug]/page.tsx` — if `!isOnSale`, render a "penjualan ditutup / belum dibuka" notice
+    **instead of** the checkout form (the page still 200s; only inactive→404 as before).
+  - `src/app/api/checkout/route.ts` — re-check `isOnSale` server-side after resolving the product;
+    if closed, reject with **`403`** (`{ error: "Penjualan untuk produk ini sedang ditutup." }`) and
+    do **not** create an order. CORS headers still attached. This is the authoritative gate (the page
+    notice is just UX).
+
+**PDF upload (`src/lib/files.ts`, extended):**
+- Add/edit accepts PDFs via `multipart/form-data` (the **main e-book** + any number of **attachments**).
+  `saveUploadedPdf()` validates **content-type = `application/pdf`** *and* the **`%PDF-` magic bytes**,
+  and enforces a **max size of 32 MB per PDF** (`MAX_UPLOAD_BYTES`). Reject otherwise with `422`.
+  **Note:** base64 inflates ~33%, so a 32 MB PDF ≈ ~43 MB to WAHA — confirm the provider's body-size
+  limit allows it (§16 Q5), and Caddy must allow the upload (`request_body { max_size 40MB }`, §18).
+- Each file is written into **`EBOOK_FILES_DIR`** under a generated, traversal-safe name (`<cuid>.pdf`)
+  — **never under `public/`, never served statically, never handed to WAHA as a URL** (invariant #4 / #5).
+  Write to a temp file then `rename` so a partial upload never becomes the live file. `Product.filePath`
+  stores the e-book's relative name; `Product.fileName` is the buyer-facing name (defaults from the
+  uploaded filename, editable). Each attachment becomes a `ProductAttachment` row the same way.
+- On **edit with a replacement e-book PDF**, write the new file first, repoint `filePath`, then
+  best-effort unlink the old one. **Removing an attachment** deletes its row and best-effort unlinks the
+  file. Adding attachments creates new rows.
+
+**Delivery of e-book + attachments (extends F4/F5 — multi-file, still exactly-once):**
+- When an order reaches **PAID** and its `Delivery` is created, **snapshot** the buyer's entitlement
+  into one **`DeliveryItem` per file**: `kind="ebook"` (sortOrder 0, from `Product.filePath/fileName`)
+  plus one `kind="attachment"` per `ProductAttachment` (by `sortOrder`). Snapshotting at purchase means
+  later attachment edits never change what an already-paid buyer is owed.
+- `attemptDelivery` claims the `Delivery` (`PENDING/FAILED → PROCESSING`, as today), then sends **each
+  `DeliveryItem` that is not yet `SENT`**, in `sortOrder` (e-book first). Each successful WAHA `sendFile`
+  marks that item `SENT`+`sentAt`; a failure marks the item `FAILED` and records `lastError`. The
+  `Delivery` becomes `SENT` (+`sentAt`) **only when all items are `SENT`**; otherwise it goes back to
+  `FAILED` with the usual backoff and retries. **A retry re-sends only the not-yet-`SENT` items**, so no
+  file is ever delivered twice (invariant #3 now reads per-file). The e-book message carries the friendly
+  caption; attachments carry a short caption.
+- WA metrics (§20.4) still count by `Delivery` terminal state (one delivery = one buyer), not per item.
+
+**UI (`src/app/admin/(dashboard)/program/page.tsx` + `src/components/admin/ProgramManager.tsx`):**
+- Lists programs in the reusable **`DataTable`** (TanStack), styled like the Leads Report:
+  columns **id**, **product name** (`name`), **program name** (`programName`), **period**
+  (`salesStartAt – salesEndAt`, WIB; "—" when unbounded), **price** (IDR), **status**
+  (`salesStatus` badge: open / scheduled / closed / inactive), and **Aksi** (Edit). Sort/search/
+  paginate + CSV/PDF export come for free from `DataTable`.
+- An **"Tambah Program"** button opens a form **(modal/drawer overlaying the page)** with: program name, product (buyer)
+  name, slug, price (IDR integer), optional description, sales start/end dates, a **main e-book PDF
+  picker**, and an **Attachments** section — a multi-file PDF picker plus a list of the chosen/existing
+  attachments each with a **remove (×)** control. **Edit** opens the same form pre-filled; the e-book
+  PDF is optional on edit (keep existing if none chosen), existing attachments are listed with remove,
+  and new ones can be added. Client validates required fields; the server is authoritative.
+- Sidebar: the **Program** item becomes `ready: true` (route `/admin/program`, icon `🎯`) — the
+  "soon" badge is removed.
+
+**Leads Report Program dropdown goes live:**
+- `LeadsReport.tsx` fetches `GET /api/admin/programs` to populate the dropdown (plus an "All
+  programs / Semua program" option). Selecting one passes `&programId=<productId>` to
+  `/api/admin/report`; the cards, table, and totals all reflect that program. "Semua program"
+  clears the filter. Reset restores all-programs + default dates.
+- `report.ts` helpers (`getDayMetrics`, `getReport`) take an optional `productId` and thread it into
+  the `Order`/`Delivery` `where` clauses (§20.4).
+
+**Forward link to the Challenge module (§15):** a "program" (this `Product` + window + attachments) is
+the entity the **future Challenge** will reference — a `Contest`/challenge will point at a `programId`
+(`productId`) and gate entry on a `PAID` `Order` for it. Keep `Product`/`ProductAttachment` clean and
+queryable by `productId`; do **not** build the challenge now (Active / Conv. Rate Active stay stubbed).
+
+**Acceptance criteria (D10):**
+- [ ] `Product` migrated with `programName` / `salesStartAt` / `salesEndAt` (existing rows unaffected,
+      always-on-sale). `lib/programs.ts` `isOnSale` / `salesStatus` unit-tested incl. WIB boundaries,
+      null bounds, scheduled/closed/inactive cases.
+- [ ] `/admin/program` lists programs in a `DataTable`; **Add** uploads a PDF and creates a program;
+      **Edit** updates fields and optionally replaces the PDF. Inputs validated (Zod); non-PDF /
+      oversized rejected `422`; duplicate slug `409`.
+- [ ] Uploaded PDFs (e-book + attachments) land in `EBOOK_FILES_DIR` (never `public/`), traversal-safe
+      names, atomic write.
+- [ ] **Attachments:** a program can be created with N attachment PDFs; editing can add and remove them
+      (removed files unlinked). On purchase, the buyer receives the **e-book + every attachment** over
+      WhatsApp; `DeliveryItem` rows are snapshotted at PAID; a retry re-sends **only** the items not yet
+      `SENT` (no file delivered twice). `Delivery` is `SENT` only when all items are `SENT`. Tests cover
+      the multi-file claim/partial-failure/retry path.
+- [ ] **After `salesEndAt`, the product cannot be bought:** the landing page hides the form and
+      `/api/checkout` returns `403` without creating an order. Before `salesStartAt` behaves the same.
+- [ ] The Leads Report **Program** dropdown is live and filters every metric (cards + table + totals)
+      by the selected program; "Semua program" shows all. Active / Conv. Rate Active remain stubbed.
+- [ ] `DELETE` refuses a program with orders (`409`); deactivation is the supported path. Build green,
+      tests green, `tsc --noEmit` clean; migration + any lockfile change committed.

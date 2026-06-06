@@ -6,9 +6,9 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.8.1 |
+| PRD version in sync with | 0.9.0 |
 | Last updated | 2026-06-06 |
-| Overall status | F1–F7 + dashboard D1–D3.1 + D8 CORS + D9 rate limit + **D10 Program deployed**; **shared Card UI system (§20.12) standardized** |
+| Overall status | F1–F7 + dashboard D1–D3.1 + D8/D9 + D10 Program + Card UI deployed; **Challenge module (D11) specced — awaiting go-ahead to build** |
 | Repo working state | green (build passes, 118 tests pass, tsc clean) |
 
 ## How to run
@@ -35,46 +35,38 @@
 - [x] **D8 — CORS domain allowlist** (`AllowedOrigin` + `/api/checkout` CORS + `/api/admin/origins` + Pengaturan UI) — PRD §20.9
 - [x] **D9 — Checkout rate limit** (`RateLimitConfig` + per-IP limit on `/api/checkout` + `/api/admin/rate-limit` + Pengaturan UI; configurable + disableable) — PRD §20.10
 - [x] **D10 — Program management** (Product gains `programName`/`salesStartAt`/`salesEndAt` + `ProductAttachment` + `DeliveryItem`; `/admin/program` list+add+edit modal with e-book PDF upload **+ attachment PDFs** add/remove; `lib/programs.ts` sales-window; checkout `403` after period ends; buyer gets **e-book + all attachments** (per-file exactly-once via `DeliveryItem`); live Program filter on Leads Report; Program is the future Challenge's reference entity) — PRD §20.11 *(built green: 118 tests + tsc + build; pending VPS deploy + migration)*
+- [ ] **D11 — Challenge module** (§21): `Challenge`/`ChallengeParticipant`/`ChallengeSubmission` + `ParticipantStatus`; **Challenge Configuration** menu (`/admin/challenge`, per-program config, seeded from `docs/challenge-rules.md`); **User/Active** menu (`/admin/active`, participant list + verify proofs + weights + %-loss); **WAHA inbound capture** (`/api/webhooks/waha`) → private `CHALLENGE_MEDIA_DIR`; `lib/challenge.ts` pure logic. *(specced; scope = 2 menus + capture only; awaiting go-ahead)*
+- [ ] **D12 — Challenge WA automation** (§21.8, deferred): scheduled outbound reminders + auto phase/elimination cron + pre-start tracking + Active KPI wiring
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
-- **D10 Program management — BUILT (green), not yet deployed.** Implemented per the plan below
-  (schema + migration `20260606000000_add_programs_and_attachments`, `lib/programs.ts`, multi-file
-  delivery via `DeliveryItem`, upload in `lib/files.ts`, admin `/api/admin/programs[/id][/attachments]`,
-  `ProgramManager` modal + `/admin/program`, live Leads Report Program dropdown). 118 tests, tsc, build
-  all green. **Next: deploy** — `git pull && sudo docker compose up -d --build` **then run the
-  migration** (`node_modules/.bin/prisma migrate deploy`); raise Caddy `request_body { max_size 40MB }`.
-  Original build plan (for reference):
-  1. Schema: add `programName`/`salesStartAt`/`salesEndAt` to `Product`; new `ProductAttachment`
-     (productId, filePath, fileName, mimeType, sizeBytes?, sortOrder) and `DeliveryItem` (deliveryId,
-     kind ebook|attachment, filePath, fileName, sortOrder, status, attempts, wahaMessageId, sentAt);
-     `Delivery.items` + `Product.attachments`. Nullable cols so existing rows stay always-on-sale.
-     `npx prisma migrate dev`.
-  2. `src/lib/programs.ts` — pure `isOnSale(product, now)` + `salesStatus(...)` (+ unit tests: WIB
-     boundaries, null bounds, scheduled/open/closed/inactive).
-  3. Enforce sales window: `/api/checkout` → `403` when closed (no order); `[slug]/page.tsx` hides form.
-  4. `src/lib/files.ts` — `saveUploadedPdf` (validate `application/pdf` + `%PDF-` magic + size cap,
-     traversal-safe `<cuid>.pdf`, temp-then-rename into `EBOOK_FILES_DIR`); reused for e-book + each attachment.
-  5. **Multi-file delivery** (`lib/delivery.ts`, `waha.ts`, webhook): on PAID, when creating the
-     `Delivery`, snapshot `DeliveryItem` rows (ebook sortOrder 0 + one per `ProductAttachment`).
-     `attemptDelivery` claims the Delivery, sends each not-yet-`SENT` item in order, marks items
-     SENT/FAILED individually; Delivery→SENT only when all items SENT; retry resends only unsent items.
-     Tests: multi-file success, partial-failure-then-retry (no double-send), all-sent → Delivery SENT.
-  6. Admin API `/api/admin/programs` (GET/POST multipart incl. attachments) + `/[id]` (PATCH multipart:
-     fields + replace ebook + add attachments / DELETE, `409` if it has orders) +
-     `/[id]/attachments` (POST add) + `/[id]/attachments/[attId]` (DELETE remove + unlink). `requireAdmin`.
-  7. UI: `program/page.tsx` + `ProgramManager.tsx` (DataTable list + Tambah/Edit form w/ ebook picker +
-     Attachments section: multi-file add + existing list with remove ×); Sidebar Program → `ready: true`.
-  8. Leads Report Program dropdown live: fetch `/api/admin/programs`, pass `&programId` to report;
-     `report.ts` helpers take optional `productId`. Update tests.
-  9. Run pre-push hook (tests + tsc + docker build) before pushing. Update all 3 md files' "done" state.
+- **D11 Challenge module — SPECCED (PRD 0.9.0 §21), awaiting go-ahead to code.** Scope (confirmed with
+  owner): **2 menus + WAHA inbound capture only**; outbound reminders + auto-transition cron are D12.
+  Rules source of truth: `docs/challenge-rules.md`. Build plan:
+  1. Schema + migration: `Challenge` (1:1 Product, config + JSON phases/winnerTiers/messageTemplates),
+     `ChallengeParticipant` (per PAID order), `ChallengeSubmission` (inbound proof), `ParticipantStatus`
+     enum; relations on Product/Customer/Order. Env: `WAHA_WEBHOOK_SECRET`, `CHALLENGE_MEDIA_DIR`.
+  2. `src/lib/challenge.ts` — pure `dayOfChallenge`, `currentPhase`, `percentLoss`, `participantView`,
+     `defaultChallengeConfig()` (seed from rules). Unit-test phase boundaries + %-loss rounding.
+  3. Inbound webhook `POST /api/webhooks/waha` — auth via `WAHA_WEBHOOK_SECRET`, idempotent on
+     `wahaMessageId`, match sender→Customer→PAID order→active Challenge, store video privately in
+     `CHALLENGE_MEDIA_DIR` (reuse `lib/files.ts` pattern), create participant/submission (initial vs final).
+  4. Admin API: `GET/PUT /api/admin/challenges/[productId]` (upsert config); `GET /api/admin/participants`
+     (?programId &group), `PATCH /api/admin/participants/[id]` (verify initial/final + weight, drop, notes),
+     `GET /api/admin/participants/[id]/proof/[kind]` (stream private video, requireAdmin).
+  5. UI: `challenge/page.tsx` + `ChallengeConfig.tsx` (program dropdown → config form, §20.12 Card);
+     `active/page.tsx` + `ParticipantList.tsx` (DataTable + verify/weight/drop actions + %-loss sort).
+     Sidebar: add **Challenge** item; set **Users / Active** `ready: true`.
+  6. Tests + tsc + build green; commit; push (pre-push hook). Update all 3 md "done" state.
+- **Open before/while coding:** confirm WAHA provider's **inbound** webhook (media form: URL vs base64;
+  auth mechanism → `WAHA_WEBHOOK_SECRET`; ~10 MB video limit) — open question #14.
 
 ## Next up
-- Deploy D10: `git pull && sudo docker compose up -d --build` **and run the new migration**
-  (`node_modules/.bin/prisma migrate deploy`) — adds Product columns + `ProductAttachment` +
-  `DeliveryItem`. Raise Caddy `request_body { max_size 40MB }` so 32 MB uploads aren't rejected.
-- Deployment finish (parallel ops task): upload e-book PDF (or via the new Program UI), set Midtrans
-  webhook + Finish Redirect URL, add the retry cron, run sandbox E2E, then switch to production keys.
+- Get owner go-ahead → build D11 per the plan above.
+- Deploy will need: new migration (`prisma migrate deploy`), `CHALLENGE_MEDIA_DIR` volume mounted RW
+  (like `/data/ebooks`), `WAHA_WEBHOOK_SECRET` in `.env`, and WAHA configured to POST inbound events to
+  `https://<app>/api/webhooks/waha`.
+- (D10 already deployed by owner: migrate deploy run + app brought up.)
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -134,6 +126,15 @@
 - **Program ↔ Challenge link (D10, 2026-06-06):** the deferred Challenge will reference a program
   (`Contest.programId = Product.id`, entry gated on a PAID order for it). Spec'd as a forward link only;
   do NOT build the challenge now. Keep `Product`/`ProductAttachment` queryable by `productId`.
+- **Challenge module D11 (2026-06-06 — PRD §21, owner-confirmed):** `Challenge` is 1:1 with `Product`.
+  Proof videos (initial/final weigh-in) are **auto-captured via WAHA inbound webhook** → private
+  `CHALLENGE_MEDIA_DIR`; **admin always verifies** + enters weights (no auto-verify). Participant appears
+  when the **initial proof arrives** (`PENDING_INITIAL_REVIEW`); status enum is small (PENDING_INITIAL_
+  REVIEW / RUNNING / PENDING_FINAL_REVIEW / COMPLETED / DROPPED) with day/phase/overdue **derived** in
+  `lib/challenge.ts`. **All config editable** (timeline/video/rewards/templates/contact), seeded from
+  `docs/challenge-rules.md`. %-loss formula `(awal−akhir)/awal×100` FIXED. **Scope D11 = 2 menus +
+  capture only**; outbound WA reminders + auto phase/elimination cron = **D12**. Rules doc copied into
+  the repo (`docs/challenge-rules.md`) as version-controlled source of truth.
 
 ## Known issues / TODO
 - (none)
@@ -145,9 +146,23 @@
 - [ ] PII retention period (UU PDP).
 - [ ] 3rd-party WAHA provider: max request body size (caps e-book size for base64), IP allowlist
       support, auth header. (Blocks F4 if a large file exceeds the limit.)
+- [ ] **WAHA inbound (D11):** does the provider POST inbound message events with **video media**? What
+      form (download URL vs base64), what **auth** (→ `WAHA_WEBHOOK_SECRET`), and the inbound media size
+      limit for ~10 MB videos? (PRD §16 Q14 — confirm before/while building `/api/webhooks/waha`.)
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — **Challenge module (D11) specced (PRD 0.9.0 §21)** — docs only, no code yet. Read owner's
+  `challenge-rules.docx` and copied it into the repo as `docs/challenge-rules.md` (version-controlled
+  source of truth). Two new menus: **Challenge Configuration** (`/admin/challenge`, per-program config,
+  all fields editable, seeded from rules) + **User/Active** (`/admin/active`, participant list/status,
+  verify proofs, weights, %-loss). Proof videos **auto-captured via WAHA inbound** (`/api/webhooks/waha`)
+  → private `CHALLENGE_MEDIA_DIR`; admin verifies. New schema `Challenge`/`ChallengeParticipant`/
+  `ChallengeSubmission` + `ParticipantStatus`; new env `WAHA_WEBHOOK_SECRET`, `CHALLENGE_MEDIA_DIR`.
+  Owner decisions: WAHA inbound capture · 2 menus + capture only (reminders/cron = D12) · all config
+  editable · only started participants appear. Updated PRD (§8/§9/§10/§15/§16/§19.3, new §21, changelog
+  0.9.0), CLAUDE.md (invariants #4/#13, layout, build order, deferred), PROGRESS.md, memory. Build plan
+  in "In progress". **Awaiting owner go-ahead before coding** + WAHA inbound capability confirmation (Q14).
 - 2026-06-06 — **Dashboard UI consistency (PRD 0.8.1 §20.12).** Pengaturan cards were uneven (each
   component set its own width/padding). Added shared `components/admin/Card.tsx` — `Card` (one shell:
   border + 12px radius + uniform padding, optional header), `CardStack` (gap + `CONTENT_MAX_WIDTH`),

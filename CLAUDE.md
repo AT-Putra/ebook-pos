@@ -36,9 +36,10 @@ done, idempotent, and recoverable.
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
 - `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `Card`/`CardStack`/`PageHeader` (shared layout primitives — §20.12), `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload)
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`)
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`)
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit; APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
+- `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`. `lib/challenge.ts` = pure day/phase/%loss/status logic. **D11 = 2 menus + capture only**; WA reminder automation + auto-transitions = deferred D12. Rules: `docs/challenge-rules.md`.
 - `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
@@ -50,8 +51,9 @@ done, idempotent, and recoverable.
    `DeliveryItem` per file (e-book + each attachment, §20.11). Delivery fires only on the `PAID`
    transition; each item is sent at most once — a retry resends only items not yet `SENT`, and the
    `Delivery` is `SENT` only when every item is `SENT`. Never send any file twice automatically.
-4. **E-book is private**: stored under `EBOOK_FILES_DIR`, OUTSIDE the web root. NEVER under `public/`,
-   never served statically, never given to WAHA as a URL.
+4. **Private files**: the e-book/attachments under `EBOOK_FILES_DIR` and challenge **proof videos** under
+   `CHALLENGE_MEDIA_DIR` are OUTSIDE the web root. NEVER under `public/`, never served statically, never
+   given to WAHA as a URL; proof videos are only ever streamed to an authenticated admin.
 5. **WAHA over HTTPS only**: `WAHA_BASE_URL` must start with `https://`; the app refuses to start /
    send otherwise. Send the file as base64 in `file.data` (never `file.url`). API key in `X-Api-Key`.
 6. **No server key / secrets to the client.** Only the Snap token / redirect URL goes to the browser.
@@ -70,6 +72,12 @@ done, idempotent, and recoverable.
     creates no order; the `[slug]` page hides the form. Server check is authoritative. Dates are WIB
     (start = 00:00:00, end = 23:59:59.999 inclusive); null bound = unbounded. Uploaded PDFs follow
     invariant #4 (private, traversal-safe name, atomic write, never `public/`).
+13. **Challenge (§21)**: one `Challenge` per program (`productId @unique`), one `ChallengeParticipant`
+    per PAID `Order` (`orderId @unique`). `/api/webhooks/waha` (inbound proofs) is authenticated with
+    `WAHA_WEBHOOK_SECRET` and **idempotent** on `wahaMessageId`. Proof videos obey invariant #4. The
+    %-loss winner formula `(awal−akhir)/awal×100` is FIXED. D11 = config + User/Active + inbound capture
+    ONLY; outbound WA reminders + auto phase/elimination cron are deferred to D12. Don't auto-verify
+    proofs — an admin always reviews. Challenge is additive: it must not touch the buyer checkout/delivery flow.
 
 ## Status mapping (Midtrans → OrderStatus)
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·
@@ -86,12 +94,11 @@ are snapshotted from the product's e-book + `ProductAttachment`s when the `Deliv
 ## Build order (vertical slices — see PRD §19.3)
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →
 F3 webhook → F4 WAHA base64 delivery → F5 retry/backoff → F6 admin+resend → SLC polish.
-**Done & deployed (F1–F7 + polish + D1–D3 + D3.1 dashboard + D8 CORS + D9 rate limit).**
-**Built, pending deploy: D10 Program management** (§20.11) — program/product config page + e-book PDF
-upload + **attachment PDFs** (delivered with the e-book) + per-program **sales window** (checkout `403`
-once `salesEndAt` passes) + **live Program filter** on the Leads Report. Multi-file delivery via
-`DeliveryItem` (per-file exactly-once). Deploy needs the new migration + Caddy `request_body 40MB`.
-Program is the entity the future **Challenge** module will reference (don't build the challenge now).
+**Done & deployed (F1–F7 + polish + D1–D3.1 dashboard + D8 CORS + D9 rate limit + D10 Program + §20.12 Card UI).**
+**Building next: D11 Challenge module** (§21) — Challenge Configuration menu + User/Active participant
+menu + WAHA **inbound** proof-video capture (`/api/webhooks/waha`). Scope = 2 menus + capture only.
+**Deferred: D12** Challenge WA reminder automation + auto phase/elimination cron (§21.8).
+Rules source of truth: `docs/challenge-rules.md`.
 (Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 Laporan export page.)
 Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is updated.
 
@@ -99,8 +106,8 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - Mockup: `docs/mockups/cms.png`. Indonesian UI. Login-gated `/admin/*`.
 - **Lead** = any checkout submission (`Order`, any status); **Purchase** = `Order.status=PAID`.
   Metrics come from existing `Order`/`Delivery` — see §20.4 for exact, WIB-bucketed definitions.
-- **Active / Conv.Rate Active** belong to the DEFERRED Challenge module — render per mockup but STUB
-  them (`0` / `—`). Do NOT fabricate data or build the challenge module now.
+- **Active / Conv.Rate Active** KPIs: stay STUBBED (`0` / `—`) in D11. They become real off
+  `ChallengeParticipant` in D12 (Active = `RUNNING` count); don't fabricate data meanwhile.
 - **Program** is NOT the challenge — it is the sellable-e-book config (D10, §20.11): main e-book +
   optional **attachment PDFs** + sales window. The sidebar Program page and the Leads Report **Program
   dropdown are real/live** as of D10: the dropdown filters every metric by program/product
@@ -133,8 +140,10 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
   spec it in the PRD (bump version + changelog) BEFORE building, so a fresh session can work from the docs.
 
 ## Deferred (do NOT build now)
-Contest/challenge module. Keep `Customer`↔`Order` clean and queryable by `productId` + `status=PAID`
-so it can be added later without schema churn.
+**D12 — Challenge WhatsApp automation** (§21.8): the scheduled outbound reminders (rules §7/§8) + the
+auto phase/elimination cron + pre-start participant tracking + wiring the dashboard Active KPIs. The
+challenge config/User-Active/inbound-capture (D11, §21) IS being built now — keep its schema/status
+forward-compatible with D12.
 
 ## Open questions (resolve before the affected slice — see PRD §16)
 Single product vs catalog · tracking-ID semantics · email fallback if WhatsApp permanently fails ·

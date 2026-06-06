@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.8.1 |
-| Status | Core flow + dashboard (D1–D3, D3.1) + CORS (D8) + rate limit (D9) + Program (D10), responsive, deployed; **shared Card UI system (§20.12) standardized** |
+| Version | 0.9.0 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12), deployed; **Challenge module (D11) specced — building next** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.9.0** (2026-06-06) — **Challenge module (slice D11) specced** — the previously-deferred reward challenge (§15) is now being built. Two new admin menus: **Challenge Configuration** (`/admin/challenge`) — pick a program, edit its challenge config (timeline, video rules, rewards/winner tiers, WA templates + contact — all editable, seeded from the rules) — and **User/Active** (`/admin/active`) — the list + status of participants. Proof videos (initial/final weigh-in) are **auto-captured via a WAHA inbound webhook** (`/api/webhooks/waha`) into private storage; the admin verifies each video and enters the weight. New schema: `Challenge` (1:1 with a `Product`), `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` enum. **Scope of D11 = the 2 menus + inbound capture only**; the outbound WhatsApp reminder automation and automatic phase/elimination cron are a **later slice (D12)**. Rules source of truth: `docs/challenge-rules.md`. Full spec: new **§21**.
 - **0.8.1** (2026-06-06) — **Dashboard UI consistency (§20.12).** Added a shared **`Card` / `CardStack` / `PageHeader`** primitive set (`src/components/admin/Card.tsx`) so every admin section is the **same width, padding, radius, and shadow** — fixes the uneven cards on the Pengaturan page. A single `CONTENT_MAX_WIDTH` constrains form pages; the `DataTable` shell now matches the card style. **Standing requirement:** all current and future admin menus compose their UI from these primitives (no ad-hoc card `<div>`s). Pengaturan, Program, and Leads Report refactored onto it.
 - **0.8.0** (2026-06-06) — **Built (green: 118 tests, tsc, build; pending VPS deploy + migration).** Added **§20.11 Program management (slice D10)**: a login-gated **Program** page (`/admin/program`) to configure the sellable e-books. It lists programs in a TanStack `DataTable` (id, product name, program name, sales period, price, status) with an **Add Program** button and per-row **Edit**; the add/edit form can **upload the PDF e-book**, written privately into `EBOOK_FILES_DIR` (never under `public/`, never served statically — invariant #4). Each program carries a **sales window** (`salesStartAt`/`salesEndAt`, WIB); **once the period ends the e-book can no longer be bought** — the landing page hides the form and `/api/checkout` rejects with `403`. `Product` gains `programName`, `salesStartAt`, `salesEndAt` (§9). The **Program** dropdown on the Leads Report becomes **live** — it filters metrics by program/product via `/api/admin/report?programId=…` (§20.4/§20.5); the challenge-tied **Active / Conv. Rate Active** KPIs stay stubbed (§20.2). New `lib/programs.ts` (pure `isOnSale` / sales-status) + private upload handling in `lib/files.ts`; admin CRUD at `/api/admin/programs[/{id}]`. A program may also carry **extra attachment PDFs** (`ProductAttachment`, e.g. a separate to-do-list PDF) uploadable on create and add/removable on edit; on purchase the buyer receives the **e-book + every attachment** over WhatsApp. To keep delivery exactly-once across multiple files, `Delivery` now has one **`DeliveryItem` per file** (e-book + each attachment), snapshotted at purchase; a retry re-sends only the items not yet `SENT` (invariant #3). The **Program** is the entity the future **Challenge module (§15)** will reference.
 - **0.7.6** (2026-06-05) — Dashboard made **responsive**: new `DashboardShell` wraps the sidebar + content; on ≤768px the sidebar collapses into an off-canvas drawer with a sticky top bar + hamburger (overlay to dismiss). Sidebar CSS consolidated into the shell's `<style>` block. Login card and the Pengaturan tables made mobile-friendly (fluid width / horizontal scroll). KPI cards and DataTable already wrapped/scrolled.
@@ -213,9 +214,11 @@ MIDTRANS_IS_PRODUCTION=false   # false => sandbox endpoints
 WAHA_BASE_URL=https://your-instance.waha-provider.example   # MUST be https://
 WAHA_API_KEY=
 WAHA_SESSION=default
+WAHA_WEBHOOK_SECRET=  # shared secret to authenticate WAHA -> /api/webhooks/waha inbound calls (§21)
 
-# E-book files (local, private)
-EBOOK_FILES_DIR=/data/ebooks   # mounted private volume; MUST be outside the web root / public dir
+# Files (local, private)
+EBOOK_FILES_DIR=/data/ebooks            # mounted private volume; MUST be outside the web root / public dir
+CHALLENGE_MEDIA_DIR=/data/challenge-media  # inbound proof videos; private, outside web root (§21)
 
 # Security
 ADMIN_TOKEN=          # bearer token for machine access to /api/admin/* (cron, scripts)
@@ -262,6 +265,7 @@ model Product {
   updatedAt   DateTime @updatedAt
   orders      Order[]
   attachments ProductAttachment[]       // extra private PDFs delivered with the e-book (§20.11)
+  challenge   Challenge?                // optional reward challenge for this program (§21)
 }
 
 model ProductAttachment {                // additional private PDF(s) given to the buyer after purchase (§20.11)
@@ -285,6 +289,7 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   orders    Order[]
+  challengeParticipations ChallengeParticipant[]   // §21
   @@unique([email, whatsapp])
   @@index([whatsapp])
 }
@@ -311,6 +316,7 @@ model Order {
   product               Product      @relation(fields: [productId], references: [id])
   delivery              Delivery?
   events                PaymentEvent[]
+  challengeParticipant  ChallengeParticipant?      // §21
   @@index([status])
   @@index([trackingId])
 }
@@ -406,6 +412,80 @@ model RateLimitConfig {                        // singleton — checkout rate li
   windowSeconds Int      @default(60)
   updatedAt     DateTime @updatedAt
 }
+
+// ── Challenge / reward module (§21) ────────────────────────────────────
+model Challenge {                                // one reward challenge per program (Product)
+  id                   String   @id @default(cuid())
+  productId            String   @unique          // the program this challenge belongs to
+  isActive             Boolean  @default(false)   // is the challenge open for this program
+  // Timeline (editable; defaults from docs/challenge-rules.md)
+  startWindowDays      Int      @default(14)       // days after purchase to send initial proof
+  durationDays         Int      @default(90)       // challenge length from the start date
+  finalProofWindowDays Int      @default(14)       // days after day-90 to send final proof
+  phases               Json                        // [{ name, focus, startDay, endDay }] (3 by default)
+  // Video rules
+  videoMaxSeconds      Int      @default(30)
+  videoMaxSizeMb       Int      @default(10)
+  videoFormat          String   @default("mp4")
+  // Rewards + winners
+  rewardsText          String?                     // free-form prize description
+  winnerTiers          Json                        // [{ label, prize, count }]
+  // Contact + WA templates (templates used by the deferred D12 automation)
+  contactInfo          String?                     // replaces "hub: xxxx" in templates
+  messageTemplates     Json                        // { triggerKey: "template text", ... }
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  product              Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  participants         ChallengeParticipant[]
+}
+
+enum ParticipantStatus {
+  PENDING_INITIAL_REVIEW   // initial proof received, awaiting admin verification (Menunggu Verifikasi)
+  RUNNING                  // verified + started; phase derived from startAt (Challenge Berjalan / Fase X)
+  PENDING_FINAL_REVIEW     // final proof received, awaiting admin verification
+  COMPLETED                // both proofs verified (Selesai / Masuk Penilaian Reward)
+  DROPPED                  // gugur/disqualified — see dropReason
+}
+
+model ChallengeParticipant {
+  id            String            @id @default(cuid())
+  challengeId   String
+  customerId    String
+  orderId       String            @unique          // the PAID order that grants entry (one entry per order)
+  status        ParticipantStatus @default(PENDING_INITIAL_REVIEW)
+  purchaseAt    DateTime                            // snapshot of order.paidAt (start-window anchor)
+  startAt       DateTime?                           // = initial proof received date (challenge day-1)
+  initialWeightKg Float?                            // entered by admin from the verified initial video
+  finalSubmittedAt DateTime?                        // when final proof was received
+  finalWeightKg Float?                              // entered by admin from the verified final video
+  percentLoss   Float?                              // computed on completion ((init-final)/init*100)
+  dropReason    String?                             // "eliminated_initial" | "eliminated_final" | "disqualified" | free text
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  challenge     Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  customer      Customer          @relation(fields: [customerId], references: [id])
+  order         Order             @relation(fields: [orderId], references: [id])
+  submissions   ChallengeSubmission[]
+  @@index([challengeId, status])
+}
+
+model ChallengeSubmission {                          // an inbound proof video (auto-captured from WAHA)
+  id            String   @id @default(cuid())
+  participantId String
+  kind          String                              // "initial" | "final"
+  receivedAt    DateTime @default(now())
+  fromNumber    String                              // sender WhatsApp (normalized)
+  wahaMessageId String?  @unique                    // dedupe inbound webhook deliveries
+  mediaPath     String?                             // private path under CHALLENGE_MEDIA_DIR (never public/)
+  mimeType      String?
+  sizeBytes     Int?
+  verifiedAt    DateTime?                           // set when admin accepts it
+  rejectedReason String?
+  rawPayload    Json?
+  participant   ChallengeParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  @@index([participantId])
+}
 ```
 
 ---
@@ -429,11 +509,14 @@ ebook-sales/
 │   │   │   ├── login/page.tsx                   # login form
 │   │   │   ├── layout.tsx                       # shell: sidebar nav + auth guard
 │   │   │   ├── page.tsx                         # Leads Report (the mockup)
-│   │   │   └── program/page.tsx                 # Program management — list/add/edit, PDF upload [D10]
-│   │   │       # later slices: leads/, purchases/, active/, wa-logs/, reports/
+│   │   │   ├── program/page.tsx                 # Program management — list/add/edit, PDF upload [D10]
+│   │   │   ├── challenge/page.tsx               # Challenge Configuration (pick program → config) [D11]
+│   │   │   └── active/page.tsx                  # User/Active — participant list + status         [D11]
+│   │   │       # later slices: leads/, purchases/, wa-logs/, reports/
 │   │   └── api/
 │   │       ├── checkout/route.ts                # POST: create order + Snap token
 │   │       ├── webhooks/midtrans/route.ts       # POST: payment notification
+│   │       ├── webhooks/waha/route.ts           # POST: inbound WA proof videos (auto-capture)  [D11]
 │   │       ├── cron/process-deliveries/route.ts # GET: retry due deliveries
 │   │       └── admin/
 │   │           ├── auth/login/route.ts          # POST: username+password → session cookie
@@ -441,6 +524,10 @@ ebook-sales/
 │   │           ├── report/route.ts              # GET: dashboard metrics (today + 14-day series; ?programId filter)
 │   │           ├── programs/route.ts            # GET list / POST create (+PDF upload, multipart)  [D10]
 │   │           ├── programs/[id]/route.ts       # PATCH update (+optional PDF) / DELETE            [D10]
+│   │           ├── challenges/[productId]/route.ts   # GET / PUT upsert a program's challenge config [D11]
+│   │           ├── participants/route.ts        # GET: list participants (?programId &state)       [D11]
+│   │           ├── participants/[id]/route.ts   # PATCH: verify proof / set weight / drop          [D11]
+│   │           ├── participants/[id]/proof/[kind]/route.ts # GET: stream the private proof video    [D11]
 │   │           ├── orders/route.ts              # GET: list/filter orders
 │   │           └── deliveries/[id]/resend/route.ts  # POST: manual re-send
 │   ├── components/
@@ -455,6 +542,7 @@ ebook-sales/
 │   │   ├── waha.ts          # WAHA client (sendFile / sendText)
 │   │   ├── files.ts         # resolve + read e-book from EBOOK_FILES_DIR (private); save uploaded PDF [D10]
 │   │   ├── programs.ts      # pure on-sale / sales-window logic (isOnSale, salesStatus)        [D10]
+│   │   ├── challenge.ts     # pure challenge logic (day/phase, %loss, status view, defaults)   [D11]
 │   │   ├── phone.ts         # WhatsApp number normalization
 │   │   ├── delivery.ts      # idempotent send + retry orchestration
 │   │   ├── auth.ts          # admin token + cron secret guards
@@ -639,7 +727,13 @@ before delivering, since frontend callbacks are user-modifiable.
 
 ---
 
-## 15. Future Extension — Challenge Module (NOT built now) `[DRAFT]`
+## 15. Challenge Module — now being built (see §21) `[SUPERSEDED]`
+
+> **Update (2026-06-06):** the challenge is no longer deferred — it is specced in full as **§21
+> (slice D11)** and references a program via `Challenge.productId = Product.id`. The notes below are
+> the original design seam; §21 is authoritative. Rules source of truth: `docs/challenge-rules.md`.
+
+### 15.0 Original design seam (historical)
 
 The current model already captures everything needed to gate a future contest on a **paid order**.
 When the challenge is added, introduce (without changing existing tables):
@@ -672,6 +766,13 @@ is where these programs are configured; the deferred Challenge plugs into them l
 8. ~~**What does "Active" count?**~~ Challenge-program participants — **depends on the deferred Challenge module (§15)**, so **Active / Conv. Rate Active** are rendered in the dashboard but **stubbed (0 / "—")** until that module is built. **Resolved (2026-06-06, D10):** the **Program** sidebar page + Leads Report dropdown are a **separate, real** concept (the sellable-e-book configuration, §20.11) — not the challenge. The dropdown is now **live** and filters report metrics by program/product.
 9. ~~**Dashboard login?**~~ **Multi-user username + password**, DB-backed sessions (`AdminUser` + `Session`).
 10. **WA Logs accuracy** `[OPEN]` — per-send-attempt timestamps are not stored today (only the `Delivery` row). A `DeliveryAttempt` audit table is recommended when the **WA Logs** page (slice D5) is built; dashboard v1 derives WA counts from `Delivery` status (§20.4).
+
+**Challenge decisions (resolved 2026-06-06 — see §21):**
+11. ~~**How are proof videos captured?**~~ **Auto-capture via WAHA inbound webhook** (`/api/webhooks/waha`) into private `CHALLENGE_MEDIA_DIR`; admin verifies + enters the weight. (Alternatives: manual admin entry / both — rejected.)
+12. ~~**Who appears in User/Active?**~~ **Only participants who started** (their initial proof video has arrived). A row is created when the inbound proof lands; status begins `PENDING_INITIAL_REVIEW`.
+13. ~~**D11 scope?**~~ **The 2 menus + inbound capture only.** Outbound WhatsApp reminders + automatic phase/elimination transitions are **deferred to slice D12**.
+14. **WAHA inbound capability** `[OPEN — verify before/while building D11]` — confirm the WAHA provider can **POST inbound message events (with video media)** to our webhook, the **media delivery form** (a download URL vs base64 in the payload), and the **authentication** mechanism (shared secret/header/HMAC) → sets `WAHA_WEBHOOK_SECRET` handling in `/api/webhooks/waha`. Also the provider's inbound media **size limit** for ~10 MB videos.
+15. **Active KPI wiring** `[OPEN]` — the dashboard `Active` / `Conv. Rate Active` KPIs can now be computed from `ChallengeParticipant` (e.g. Active = `RUNNING` count). D11 leaves them stubbed; wiring them is a small follow-up (define `Conv. Rate Active` = active ÷ purchases for the program). 
 
 ---
 
@@ -855,11 +956,12 @@ Leads Report UI) are built, tested, and deployed; the stack was upgraded to the 
 
 **Dashboard / CMS (§20) — in progress:** **D3.1** UX polish — restyled KPI widgets + a reusable
 sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF export (§20.8).
-**Done:** **D8** CORS domain allowlist (§20.9) · **D9** checkout rate limit (§20.10) — both managed in
-the Pengaturan menu.
-**Specced, building next:** **D10** Program management (§20.11) — product/program configuration page
-with PDF upload, a per-program **sales window** that suspends checkout when it ends, and a **live
-Program filter** on the Leads Report.
+**Done:** **D8** CORS domain allowlist (§20.9) · **D9** checkout rate limit (§20.10) · **D10** Program
+management (§20.11) · **§20.12** shared Card UI system.
+**Specced, building next:** **D11** Challenge module (§21) — Challenge Configuration menu + User/Active
+participant menu + WAHA **inbound** proof-video capture. (Scope: 2 menus + capture only.)
+**Deferred:** **D12** Challenge WhatsApp automation (§21.8) — the scheduled outbound reminders + the
+automatic phase/elimination cron (uses the schedule + templates in `docs/challenge-rules.md`).
 Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
 **D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
 per-table CSV/PDF export already ships in D3.1).
@@ -1239,3 +1341,155 @@ ad-hoc card `<div>`s with their own widths (that produced the uneven Pengaturan 
    content-card shell — but they stay uniform with each other.
 
 Applied so far: **Pengaturan** (CORS + rate-limit cards now identical), **Program**, **Leads Report**.
+
+---
+
+## 21. Challenge Module (slice D11) `[DRAFT]`
+
+The reward challenge attached to a program. **Rules source of truth: `docs/challenge-rules.md`** (extracted
+from the owner's `challenge-rules.docx`) — use its exact values/texts; the config UI is seeded with them.
+This section is the build spec; where it and the rules doc agree, both hold; where this section adds
+implementation detail (schema, statuses, APIs), this section governs.
+
+### 21.1 Scope
+**In D11 (build now):**
+1. **Challenge Configuration** menu (`/admin/challenge`) — per-program config (timeline, video rules,
+   rewards/winner tiers, WA templates + contact — all editable, seeded from the rules).
+2. **User/Active** menu (`/admin/active`) — list + status of participants who have started; admin verifies
+   proof videos and records weights; %-loss leaderboard.
+3. **WAHA inbound capture** (`/api/webhooks/waha`) — receive proof videos, store them privately, attach to
+   the participant.
+
+**Deferred to D12 (do NOT build now):** the **outbound WhatsApp reminder automation** (the schedule +
+templates in the rules doc §7/§8) and the **automatic phase/elimination cron** (auto-advance at day
+30/60/90, auto-eliminate at H+15 / day 105). In D11, phase/overdue are **derived for display** and
+status changes are **admin-driven** (plus the inbound webhook). The pre-start statuses (Pembelian,
+Menunggu Bukti Awal, Gugur Awal) are a D12 concern — D11 surfaces a participant only once their initial
+proof arrives.
+
+### 21.2 Lifecycle (D11)
+1. A customer completes a **PAID** order for a program whose `Challenge.isActive = true`.
+2. They send their **initial proof** video to the business WhatsApp. WAHA forwards it to
+   `/api/webhooks/waha`. The webhook matches the sender to a `Customer` → their eligible PAID `Order`,
+   stores the video privately, and **creates a `ChallengeParticipant`** (status `PENDING_INITIAL_REVIEW`,
+   `purchaseAt = order.paidAt`) with a `ChallengeSubmission(kind="initial")`. They now appear in User/Active.
+3. The admin opens the row, **watches the video** (streamed from private storage), checks it against the
+   rules (face + digital scale, full + timestamped, not AI/edited, within the 14-day window), enters the
+   **initial weight (kg)**, and **accepts** → status `RUNNING`, `startAt = submission.receivedAt`
+   (challenge day-1 per the rules). Or **rejects** (records `rejectedReason`; participant can resend).
+4. While `RUNNING`, the participant's **current day** and **phase** are derived from `startAt` + today.
+5. The **final proof** video arrives (same path) → a `ChallengeSubmission(kind="final")`, status
+   `PENDING_FINAL_REVIEW`. Admin verifies, enters **final weight**, accepts → status `COMPLETED`,
+   `finalWeightKg` set, `percentLoss` computed.
+6. The admin may **drop** a participant at any time (status `DROPPED`, `dropReason` = `disqualified`
+   for rule violations, or `eliminated_initial` / `eliminated_final` for missed deadlines — in D11 these
+   are set manually; D12 automates the deadline ones).
+
+### 21.3 Data model (see §9 for the exact Prisma)
+- **`Challenge`** — 1:1 with `Product` (`productId @unique`, cascade delete). Config only. JSON fields:
+  `phases` `[{ name, focus, startDay, endDay }]`, `winnerTiers` `[{ label, prize, count }]`,
+  `messageTemplates` `{ triggerKey: text }` (for D12). Seeded from `docs/challenge-rules.md` defaults via
+  `lib/challenge.ts` `defaultChallengeConfig()`.
+- **`ChallengeParticipant`** — one per PAID `Order` (`orderId @unique`). Stores `status`, `purchaseAt`,
+  `startAt`, `initialWeightKg`, `finalWeightKg`, `finalSubmittedAt`, `percentLoss`, `dropReason`, `notes`.
+- **`ChallengeSubmission`** — one per inbound proof video (`kind` `"initial"|"final"`, `mediaPath`,
+  `wahaMessageId @unique` for idempotency, `verifiedAt`, `rejectedReason`).
+
+### 21.4 Status model & derived view (`src/lib/challenge.ts`, pure + unit-tested)
+Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_REVIEW`, `COMPLETED`,
+`DROPPED`. Pure helpers (no DB):
+- `dayOfChallenge(startAt, now)` → 1-based integer day (`null` if not started).
+- `currentPhase(challenge, day)` → the phase object whose `[startDay, endDay]` contains `day`.
+- `percentLoss(initialKg, finalKg)` → `(initial − final) / initial * 100` (rounded 2 dp; `null` if missing).
+- `participantView(participant, challenge, now)` → `{ dayOfChallenge, phaseIndex, phaseName,
+  displayStatus, group, percentLoss, finalOverdue }` where:
+  - `group` ∈ `'active' | 'dropped' | 'completed' | 'pending'` — **active** = `RUNNING` or
+    `PENDING_FINAL_REVIEW`; **dropped** = `DROPPED`; **completed** = `COMPLETED`; **pending** =
+    `PENDING_INITIAL_REVIEW`.
+  - `displayStatus` (Bahasa, maps to rules §8): `PENDING_INITIAL_REVIEW`→"Menunggu Verifikasi Bukti Awal";
+    `RUNNING` with day≤30→"Challenge Berjalan — Fase 1", 31–60→"Fase 2", 61–90→"Fase 3", >90 (no final)→
+    "Menunggu Bukti Akhir"; `PENDING_FINAL_REVIEW`→"Menunggu Verifikasi Bukti Akhir"; `COMPLETED`→"Selesai";
+    `DROPPED`→"Gugur" (+ reason).
+  - `finalOverdue` = `RUNNING` and `day > durationDays + finalProofWindowDays` (eligible for elimination;
+    in D11 the admin acts on it — D12 automates).
+
+### 21.5 Challenge Configuration menu (`/admin/challenge`, `ChallengeConfig.tsx`)
+- A **program dropdown** (from `GET /api/admin/programs`). On select, `GET
+  /api/admin/challenges/{productId}` returns that program's challenge config (or `404` → show "Buat
+  challenge" with `defaultChallengeConfig()` pre-filled).
+- A form (built from the §20.12 `Card`/`PageHeader` primitives) with **all** editable fields: enable
+  toggle; timeline (start-window days, duration days, final-proof-window days, the 3 phases — name +
+  focus + day range); video rules (max seconds, max size MB, format); rewards text + winner tiers
+  (label/prize/count rows, add/remove); contact info; WA templates (a textarea per trigger key — stored
+  for D12). **Save** → `PUT /api/admin/challenges/{productId}` (upsert by `productId`, `requireAdmin`,
+  Zod-validated; JSON fields validated for shape).
+
+### 21.6 WAHA inbound capture (`/api/webhooks/waha`)
+- **Auth:** authenticate every call with `WAHA_WEBHOOK_SECRET` (provider's webhook auth — header/HMAC or
+  a secret in the path; **exact mechanism is open question #14**, confirm with the provider). Reject
+  unauthenticated calls `401`; always `200` quickly to valid ones so the provider doesn't retry-storm.
+- **Idempotency:** dedupe on `wahaMessageId` (`@unique`) — a re-delivered event is a no-op.
+- **Parse:** extract sender number → `normalizeIndonesianPhone` → find `Customer` by `whatsapp`. Find that
+  customer's eligible **PAID** `Order` for a program with `Challenge.isActive = true`. If no match, log and
+  `200` (ignore non-participants). Only process messages that carry a **video** attachment.
+- **Media:** fetch the media (download URL or base64 per the provider) and store it under
+  **`CHALLENGE_MEDIA_DIR`** with a generated, traversal-safe name (reuse the `lib/files.ts` pattern) —
+  **private, never under `public/`, never served statically** (invariant #4 extends to proof videos).
+- **Classify initial vs final:** if the participant has no `initial` submission yet → `kind="initial"`
+  (create the participant if needed, status `PENDING_INITIAL_REVIEW`); else if `RUNNING` → `kind="final"`
+  (status `PENDING_FINAL_REVIEW`). Record a `ChallengeSubmission`.
+- The webhook never auto-verifies; an admin always reviews (the rules require human judgment).
+
+### 21.7 User/Active menu (`/admin/active`, `ParticipantList.tsx`)
+- A **program dropdown** + a **group filter** (Semua / Aktif / Selesai / Gugur / Menunggu verifikasi).
+- A `DataTable` (§20.12 styling) of participants (only those who started — open question #12) with
+  columns: name, WhatsApp, **status** (`displayStatus` badge), **hari/fase** (derived), berat awal,
+  berat akhir, **% turun** (sortable → leaderboard), tanggal mulai, aksi.
+- Row actions (→ `PATCH /api/admin/participants/{id}`, `requireAdmin`):
+  - **Lihat video** — opens `GET /api/admin/participants/{id}/proof/{kind}` (streams the private video to
+    the admin only; auth-gated; never a public URL).
+  - **Verifikasi bukti awal** — enter initial weight + accept → `RUNNING` (`startAt` = initial submission
+    `receivedAt`), or reject (reason).
+  - **Verifikasi bukti akhir** — enter final weight + accept → `COMPLETED` (compute `percentLoss`), or reject.
+  - **Gugurkan / Diskualifikasi** — set `DROPPED` + `dropReason`.
+  - **Catatan** — edit `notes`.
+- `GET /api/admin/participants?programId=&group=` lists with the derived view fields computed server-side
+  via `lib/challenge.ts`.
+
+### 21.8 Deferred — Challenge WhatsApp automation (slice D12)
+Not built in D11. Will add: a cron that, per participant timeline, **sends** the scheduled reminders
+(rules §7) using `Challenge.messageTemplates` (rules §8) via the existing `lib/waha.ts` `sendText`, and
+**auto-advances/eliminates** (day 30/60/90 markers, H+15 no-initial, day-105 no-final). Also auto-creates
+participants at PAID for the pre-start statuses (Pembelian / Menunggu Bukti Awal / Gugur Awal) and may
+wire the dashboard **Active** KPIs (open question #15). Keep D11 schema/status forward-compatible with this.
+
+### 21.9 Security & invariants
+- **Proof videos are private** (invariant #4 extends): stored under `CHALLENGE_MEDIA_DIR` outside the web
+  root, traversal-safe names, atomic write; only ever streamed to an authenticated admin, never a public URL.
+- `/api/webhooks/waha` is authenticated with `WAHA_WEBHOOK_SECRET`; `/api/admin/*` stays `requireAdmin`.
+- All inputs Zod-validated; weights are positive numbers; one challenge per program; one participant per order.
+- The challenge is **additive** — it must not change the buyer-facing checkout/delivery flow or any §1–§14 invariant.
+
+### 21.10 Acceptance criteria (D11)
+- [ ] Migration adds `Challenge`, `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` (+
+      relations). `lib/challenge.ts` pure helpers (`dayOfChallenge`, `currentPhase`, `percentLoss`,
+      `participantView`, `defaultChallengeConfig`) unit-tested incl. phase boundaries & %-loss rounding.
+- [ ] **Challenge Configuration**: pick a program → view/edit/save its challenge (all fields), enable
+      toggle works; new programs get the rules defaults; `PUT` upserts by `productId`; Zod-validated.
+- [ ] **WAHA inbound**: an authenticated webhook call carrying a video from a known buyer creates/updates
+      the participant + a `ChallengeSubmission`, stores the video privately (never `public/`), dedupes by
+      `wahaMessageId`, and ignores non-buyers; bad/unauth calls rejected.
+- [ ] **User/Active**: lists started participants for a program with derived status/day/phase; admin can
+      stream a proof video, verify initial (sets `RUNNING` + `startAt` + initial weight), verify final
+      (sets `COMPLETED` + final weight + `percentLoss`), and drop with a reason; %-loss column sorts.
+- [ ] Sidebar gains **Challenge** (`/admin/challenge`) and enables **Users / Active** (`/admin/active`).
+- [ ] Outbound reminders + auto-transition cron are NOT built (deferred D12). Build green, tests green,
+      `tsc --noEmit` clean; migration + lockfile committed.
+
+### 21.11 Assumptions baked in (confirm before coding)
+1. A participant appears the moment their **initial proof video arrives** (status
+   `PENDING_INITIAL_REVIEW`), before admin verification — so the admin has something to review.
+2. **First** proof = initial, **next** proof (while `RUNNING`) = final.
+3. Weights are **entered by the admin** from the verified video (the video shows the scale).
+4. `CHALLENGE_MEDIA_DIR` is a new private volume (separate from `EBOOK_FILES_DIR`).
+5. Dashboard `Active` KPIs stay **stubbed** in D11 (wired in D12).

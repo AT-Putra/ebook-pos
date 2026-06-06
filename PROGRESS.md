@@ -48,9 +48,11 @@
      enum; relations on Product/Customer/Order. Env: `WAHA_WEBHOOK_SECRET`, `CHALLENGE_MEDIA_DIR`.
   2. `src/lib/challenge.ts` — pure `dayOfChallenge`, `currentPhase`, `percentLoss`, `participantView`,
      `defaultChallengeConfig()` (seed from rules). Unit-test phase boundaries + %-loss rounding.
-  3. Inbound webhook `POST /api/webhooks/waha` — auth via `WAHA_WEBHOOK_SECRET`, idempotent on
-     `wahaMessageId`, match sender→Customer→PAID order→active Challenge, store video privately in
-     `CHALLENGE_MEDIA_DIR` (reuse `lib/files.ts` pattern), create participant/submission (initial vs final).
+  3. Inbound webhook `POST /api/webhooks/waha` — subscribe WAHA to `message` event; verify HMAC-SHA512
+     `X-Webhook-Hmac` over raw body (key=`WAHA_WEBHOOK_SECRET`, constant-time); idempotent on `payload.id`
+     (→ `wahaMessageId`); ignore `fromMe`/non-video; match sender→Customer→PAID order→active Challenge;
+     download `payload.media.url` with `X-Api-Key` (https), store privately in `CHALLENGE_MEDIA_DIR`
+     (reuse `lib/files.ts` pattern); create participant/submission (initial vs final). Ack 200 fast.
   4. Admin API: `GET/PUT /api/admin/challenges/[productId]` (upsert config); `GET /api/admin/participants`
      (?programId &group), `PATCH /api/admin/participants/[id]` (verify initial/final + weight, drop, notes),
      `GET /api/admin/participants/[id]/proof/[kind]` (stream private video, requireAdmin).
@@ -146,12 +148,19 @@
 - [ ] PII retention period (UU PDP).
 - [ ] 3rd-party WAHA provider: max request body size (caps e-book size for base64), IP allowlist
       support, auth header. (Blocks F4 if a large file exceeds the limit.)
-- [ ] **WAHA inbound (D11):** does the provider POST inbound message events with **video media**? What
-      form (download URL vs base64), what **auth** (→ `WAHA_WEBHOOK_SECRET`), and the inbound media size
-      limit for ~10 MB videos? (PRD §16 Q14 — confirm before/while building `/api/webhooks/waha`.)
+- [x] **WAHA inbound (D11)** → **Resolved (2026-06-06, WAHA docs):** subscribe to `message` event;
+      media via `payload.media.url` (download with `X-Api-Key: WAHA_API_KEY`, not base64); auth = HMAC-
+      SHA512 in `X-Webhook-Hmac` (key=`WAHA_WEBHOOK_SECRET`); dedupe on `payload.id`; WAHA retries. No
+      documented inbound size limit (cap our own storage). PRD §21.6 + §16 Q14.
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — D11 spec: confirmed the **WAHA inbound + send contract** from the provider docs and folded
+  it in. Inbound: `message` event, media via `payload.media.url` (download w/ `X-Api-Key`), HMAC-SHA512
+  `X-Webhook-Hmac` auth (key=`WAHA_WEBHOOK_SECRET`), dedupe on `payload.id` (§21.6, Q14 resolved). Added
+  **§12.2.1 humanized send sequence** (sendSeen → startTyping → wait → stopTyping → sendText) as a
+  required anti-spam standard for all reminder/reply sends (`lib/waha.ts` `sendTextHumanized`; CLAUDE
+  invariant #14). e-book `sendFile` on PAID stays exempt. Docs only — still awaiting go-ahead to code.
 - 2026-06-06 — **Challenge module (D11) specced (PRD 0.9.0 §21)** — docs only, no code yet. Read owner's
   `challenge-rules.docx` and copied it into the repo as `docs/challenge-rules.md` (version-controlled
   source of truth). Two new menus: **Challenge Configuration** (`/admin/challenge`, per-program config,

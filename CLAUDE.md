@@ -73,11 +73,18 @@ done, idempotent, and recoverable.
     (start = 00:00:00, end = 23:59:59.999 inclusive); null bound = unbounded. Uploaded PDFs follow
     invariant #4 (private, traversal-safe name, atomic write, never `public/`).
 13. **Challenge (§21)**: one `Challenge` per program (`productId @unique`), one `ChallengeParticipant`
-    per PAID `Order` (`orderId @unique`). `/api/webhooks/waha` (inbound proofs) is authenticated with
-    `WAHA_WEBHOOK_SECRET` and **idempotent** on `wahaMessageId`. Proof videos obey invariant #4. The
-    %-loss winner formula `(awal−akhir)/awal×100` is FIXED. D11 = config + User/Active + inbound capture
-    ONLY; outbound WA reminders + auto phase/elimination cron are deferred to D12. Don't auto-verify
-    proofs — an admin always reviews. Challenge is additive: it must not touch the buyer checkout/delivery flow.
+    per PAID `Order` (`orderId @unique`). `/api/webhooks/waha` subscribes to WAHA's **`message`** event;
+    auth = **HMAC-SHA512** of the raw body in header `X-Webhook-Hmac` (key = `WAHA_WEBHOOK_SECRET`,
+    constant-time compare, like Midtrans); **idempotent** on `payload.id` (→ `wahaMessageId`). Inbound
+    media arrives as `payload.media.url` — download it with `X-Api-Key: WAHA_API_KEY` (https only) and
+    store under `CHALLENGE_MEDIA_DIR` (invariant #4). %-loss formula `(awal−akhir)/awal×100` is FIXED.
+    D11 = config + User/Active + inbound capture ONLY (no auto-verify, no auto-reply); outbound WA
+    reminders + auto phase/elimination cron are deferred to D12. Challenge is additive: never touches the
+    buyer checkout/delivery flow.
+14. **Humanized WA sends (§12.2.1, anti-spam — ALWAYS)**: every conversational/reminder text send (D12
+    reminders, any reply) MUST go through `lib/waha.ts` `sendTextHumanized`: `sendSeen` → `startTyping` →
+    wait a random interval scaled to message length → `stopTyping` → `sendText` (all `X-Api-Key`, https).
+    The transactional e-book `sendFile` on PAID is exempt (may still typing-indicate).
 
 ## Status mapping (Midtrans → OrderStatus)
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·

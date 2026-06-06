@@ -14,7 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
-- **0.9.0** (2026-06-06) — **Challenge module (slice D11) specced** — the previously-deferred reward challenge (§15) is now being built. Two new admin menus: **Challenge Configuration** (`/admin/challenge`) — pick a program, edit its challenge config (timeline, video rules, rewards/winner tiers, WA templates + contact — all editable, seeded from the rules) — and **User/Active** (`/admin/active`) — the list + status of participants. Proof videos (initial/final weigh-in) are **auto-captured via a WAHA inbound webhook** (`/api/webhooks/waha`) into private storage; the admin verifies each video and enters the weight. New schema: `Challenge` (1:1 with a `Product`), `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` enum. **Scope of D11 = the 2 menus + inbound capture only**; the outbound WhatsApp reminder automation and automatic phase/elimination cron are a **later slice (D12)**. Rules source of truth: `docs/challenge-rules.md`. Full spec: new **§21**.
+- **0.9.0** (2026-06-06) — **Challenge module (slice D11) specced** — the previously-deferred reward challenge (§15) is now being built. Two new admin menus: **Challenge Configuration** (`/admin/challenge`) — pick a program, edit its challenge config (timeline, video rules, rewards/winner tiers, WA templates + contact — all editable, seeded from the rules) — and **User/Active** (`/admin/active`) — the list + status of participants. Proof videos (initial/final weigh-in) are **auto-captured via a WAHA inbound webhook** (`/api/webhooks/waha`) into private storage; the admin verifies each video and enters the weight. New schema: `Challenge` (1:1 with a `Product`), `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` enum. **Scope of D11 = the 2 menus + inbound capture only**; the outbound WhatsApp reminder automation and automatic phase/elimination cron are a **later slice (D12)**. Rules source of truth: `docs/challenge-rules.md`. Full spec: new **§21**. WAHA inbound contract confirmed from the provider docs (event `message`; media via `media.url` downloaded with `X-Api-Key`; HMAC-SHA512 `X-Webhook-Hmac` auth; dedupe on `payload.id`) — §21.6, open question #14 resolved. Added **§12.2.1 humanized send sequence** (sendSeen → startTyping → wait → stopTyping → sendText) as a required anti-spam standard for all conversational/reminder sends.
 - **0.8.1** (2026-06-06) — **Dashboard UI consistency (§20.12).** Added a shared **`Card` / `CardStack` / `PageHeader`** primitive set (`src/components/admin/Card.tsx`) so every admin section is the **same width, padding, radius, and shadow** — fixes the uneven cards on the Pengaturan page. A single `CONTENT_MAX_WIDTH` constrains form pages; the `DataTable` shell now matches the card style. **Standing requirement:** all current and future admin menus compose their UI from these primitives (no ad-hoc card `<div>`s). Pengaturan, Program, and Leads Report refactored onto it.
 - **0.8.0** (2026-06-06) — **Built (green: 118 tests, tsc, build; pending VPS deploy + migration).** Added **§20.11 Program management (slice D10)**: a login-gated **Program** page (`/admin/program`) to configure the sellable e-books. It lists programs in a TanStack `DataTable` (id, product name, program name, sales period, price, status) with an **Add Program** button and per-row **Edit**; the add/edit form can **upload the PDF e-book**, written privately into `EBOOK_FILES_DIR` (never under `public/`, never served statically — invariant #4). Each program carries a **sales window** (`salesStartAt`/`salesEndAt`, WIB); **once the period ends the e-book can no longer be bought** — the landing page hides the form and `/api/checkout` rejects with `403`. `Product` gains `programName`, `salesStartAt`, `salesEndAt` (§9). The **Program** dropdown on the Leads Report becomes **live** — it filters metrics by program/product via `/api/admin/report?programId=…` (§20.4/§20.5); the challenge-tied **Active / Conv. Rate Active** KPIs stay stubbed (§20.2). New `lib/programs.ts` (pure `isOnSale` / sales-status) + private upload handling in `lib/files.ts`; admin CRUD at `/api/admin/programs[/{id}]`. A program may also carry **extra attachment PDFs** (`ProductAttachment`, e.g. a separate to-do-list PDF) uploadable on create and add/removable on edit; on purchase the buyer receives the **e-book + every attachment** over WhatsApp. To keep delivery exactly-once across multiple files, `Delivery` now has one **`DeliveryItem` per file** (e-book + each attachment), snapshotted at purchase; a retry re-sends only the items not yet `SENT` (invariant #3). The **Program** is the entity the future **Challenge module (§15)** will reference.
 - **0.7.6** (2026-06-05) — Dashboard made **responsive**: new `DashboardShell` wraps the sidebar + content; on ≤768px the sidebar collapses into an off-canvas drawer with a sticky top bar + hamburger (overlay to dismiss). Sidebar CSS consolidated into the shell's `<style>` block. Login card and the Pengaturan tables made mobile-friendly (fluid width / horizontal scroll). KPI cards and DataTable already wrapped/scrolled.
@@ -673,6 +673,19 @@ before delivering, since frontend callbacks are user-modifiable.
   handling on our side). If the provider's session drops, sends fail → deliveries go to retry.
   Surface send failures to the operator so a re-link in the provider dashboard can be triggered.
 
+#### 12.2.1 Humanized send sequence (anti-spam) `[STABLE]`
+WhatsApp can flag bot-like behavior. **Any conversational/text reply the system sends — especially the
+D12 challenge reminders — MUST follow this sequence** (`lib/waha.ts` should expose a `sendTextHumanized`
+helper that does it; the existing automatic e-book `sendFile` on PAID is a transactional push and is
+exempt, though it may still `startTyping`/`stopTyping`):
+1. `POST /api/sendSeen` — mark the incoming message seen (`{ session, chatId, messageIds? }`).
+2. `POST /api/startTyping` — `{ session, chatId }`.
+3. **Wait a random interval** scaled to the message length (e.g. ~`min(base + perChar·len, cap)` with jitter).
+4. `POST /api/stopTyping` — `{ session, chatId }`.
+5. `POST /api/sendText` — `{ session, chatId, text }`.
+All calls use `X-Api-Key: WAHA_API_KEY` over `https://`. (Endpoints confirmed at
+https://waha.devlike.pro/docs/how-to/send-messages/.)
+
 **Phone normalization (`src/lib/phone.ts`)** — Indonesian numbers:
 1. Strip spaces, dashes, parentheses, and a leading `+`.
 2. Leading `0` → replace with `62`. Leading `8` (no `0`/`62`) → prefix `62`. Leading `62` → keep.
@@ -771,7 +784,7 @@ is where these programs are configured; the deferred Challenge plugs into them l
 11. ~~**How are proof videos captured?**~~ **Auto-capture via WAHA inbound webhook** (`/api/webhooks/waha`) into private `CHALLENGE_MEDIA_DIR`; admin verifies + enters the weight. (Alternatives: manual admin entry / both — rejected.)
 12. ~~**Who appears in User/Active?**~~ **Only participants who started** (their initial proof video has arrived). A row is created when the inbound proof lands; status begins `PENDING_INITIAL_REVIEW`.
 13. ~~**D11 scope?**~~ **The 2 menus + inbound capture only.** Outbound WhatsApp reminders + automatic phase/elimination transitions are **deferred to slice D12**.
-14. **WAHA inbound capability** `[OPEN — verify before/while building D11]` — confirm the WAHA provider can **POST inbound message events (with video media)** to our webhook, the **media delivery form** (a download URL vs base64 in the payload), and the **authentication** mechanism (shared secret/header/HMAC) → sets `WAHA_WEBHOOK_SECRET` handling in `/api/webhooks/waha`. Also the provider's inbound media **size limit** for ~10 MB videos.
+14. ~~**WAHA inbound capability?**~~ **Resolved (2026-06-06, WAHA docs):** the session subscribes to the **`message`** event and POSTs to our webhook; media arrives as **`payload.media.url`** (a WAHA `/api/files/...` link, downloaded with `X-Api-Key: WAHA_API_KEY`), **not** base64; auth = **HMAC-SHA512** via the `X-Webhook-Hmac` header (configure `webhooks[].hmac.key = WAHA_WEBHOOK_SECRET`); dedupe on `payload.id`; WAHA retries failed deliveries. No documented inbound size limit — we cap our own storage. See §21.6. Any outbound reply must use the humanized send sequence (§12.2.1).
 15. **Active KPI wiring** `[OPEN]` — the dashboard `Active` / `Conv. Rate Active` KPIs can now be computed from `ChallengeParticipant` (e.g. Active = `RUNNING` count). D11 leaves them stubbed; wiring them is a small follow-up (define `Conv. Rate Active` = active ÷ purchases for the program). 
 
 ---
@@ -1429,16 +1442,30 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
   a secret in the path; **exact mechanism is open question #14**, confirm with the provider). Reject
   unauthenticated calls `401`; always `200` quickly to valid ones so the provider doesn't retry-storm.
 - **Idempotency:** dedupe on `wahaMessageId` (`@unique`) — a re-delivered event is a no-op.
-- **Parse:** extract sender number → `normalizeIndonesianPhone` → find `Customer` by `whatsapp`. Find that
-  customer's eligible **PAID** `Order` for a program with `Challenge.isActive = true`. If no match, log and
-  `200` (ignore non-participants). Only process messages that carry a **video** attachment.
-- **Media:** fetch the media (download URL or base64 per the provider) and store it under
-  **`CHALLENGE_MEDIA_DIR`** with a generated, traversal-safe name (reuse the `lib/files.ts` pattern) —
-  **private, never under `public/`, never served statically** (invariant #4 extends to proof videos).
+- **WAHA contract (confirmed — https://waha.devlike.pro/docs):** subscribe the WAHA session to the
+  **`message`** event (incoming only; not `message.any`). The POST body is
+  `{ event:"message", session, payload, ... }`; the **`payload`** has `id` (WhatsApp message id),
+  `from` (`"<digits>@c.us"`), `fromMe`, `body`, `timestamp`, `hasMedia`, and (when media was downloaded)
+  **`media.url`** + `media.mimetype` (+ `media.filename` for documents). Ignore `payload.fromMe = true`.
+- **Auth (HMAC, like the Midtrans pattern):** configure the WAHA webhook with `hmac.key =
+  WAHA_WEBHOOK_SECRET`. Each call carries header **`X-Webhook-Hmac`** = `HMAC_SHA512(rawBody, secret)`
+  hex (`X-Webhook-Hmac-Algorithm: sha512`). Verify it **constant-time over the raw body** (read
+  `await req.text()` before parsing); reject mismatch `401`. (`X-Webhook-Request-Id` is the delivery id.)
+- **Idempotency:** WAHA retries failed deliveries, so dedupe on **`payload.id`** stored as
+  `ChallengeSubmission.wahaMessageId` (`@unique`); a duplicate is a no-op `200`.
+- **Parse + match:** only process `hasMedia && media.mimetype` startsWith `"video/"`. Normalize
+  `payload.from` → `Customer` by `whatsapp` → their eligible **PAID** `Order` for a program with
+  `Challenge.isActive = true`. No match → log + `200` (ignore non-participants).
+- **Media fetch + store:** GET `media.url` with header `X-Api-Key: WAHA_API_KEY` (the URL must be
+  `https://` per invariant #5). Enforce a size cap (~`videoMaxSizeMb` + margin) and a `video/*` content
+  type, then store under **`CHALLENGE_MEDIA_DIR`** with a generated traversal-safe name (reuse the
+  `lib/files.ts` temp→rename pattern) — **private, never under `public/`, never served statically**
+  (invariant #4 extends to proof videos). If `hasMedia` but no `media.url`, log (WAHA didn't download it).
 - **Classify initial vs final:** if the participant has no `initial` submission yet → `kind="initial"`
   (create the participant if needed, status `PENDING_INITIAL_REVIEW`); else if `RUNNING` → `kind="final"`
-  (status `PENDING_FINAL_REVIEW`). Record a `ChallengeSubmission`.
-- The webhook never auto-verifies; an admin always reviews (the rules require human judgment).
+  (status `PENDING_FINAL_REVIEW`). Record a `ChallengeSubmission`. Always ack `200` fast.
+- The webhook **never auto-verifies and never auto-replies** in D11; an admin always reviews (the rules
+  require human judgment). Any future auto-reply must use the humanized send sequence (§12.2).
 
 ### 21.7 User/Active menu (`/admin/active`, `ParticipantList.tsx`)
 - A **program dropdown** + a **group filter** (Semua / Aktif / Selesai / Gugur / Menunggu verifikasi).
@@ -1458,7 +1485,8 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
 
 ### 21.8 Deferred — Challenge WhatsApp automation (slice D12)
 Not built in D11. Will add: a cron that, per participant timeline, **sends** the scheduled reminders
-(rules §7) using `Challenge.messageTemplates` (rules §8) via the existing `lib/waha.ts` `sendText`, and
+(rules §7) using `Challenge.messageTemplates` (rules §8) via the **humanized send sequence** (§12.2.1 —
+sendSeen → startTyping → wait → stopTyping → sendText), and
 **auto-advances/eliminates** (day 30/60/90 markers, H+15 no-initial, day-105 no-final). Also auto-creates
 participants at PAID for the pre-start statuses (Pembelian / Menunggu Bukti Awal / Gugur Awal) and may
 wire the dashboard **Active** KPIs (open question #15). Keep D11 schema/status forward-compatible with this.

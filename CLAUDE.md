@@ -102,8 +102,9 @@ are snapshotted from the product's e-book + `ProductAttachment`s when the `Deliv
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →
 F3 webhook → F4 WAHA base64 delivery → F5 retry/backoff → F6 admin+resend → SLC polish.
 **Done & deployed (F1–F7 + polish + D1–D3.1 dashboard + D8 CORS + D9 rate limit + D10 Program + §20.12 Card UI).**
-**Building next: D11 Challenge module** (§21) — Challenge Configuration menu + User/Active participant
-menu + WAHA **inbound** proof-video capture (`/api/webhooks/waha`). Scope = 2 menus + capture only.
+**Built, pending deploy: D11 Challenge module** (§21) — Challenge Configuration menu + User/Active
+participant menu + WAHA **inbound** proof-video capture (`/api/webhooks/waha`). Deploy needs the new
+migration, `CHALLENGE_MEDIA_DIR` volume, `WAHA_WEBHOOK_SECRET`, + WAHA session webhook → `/api/webhooks/waha`.
 **Deferred: D12** Challenge WA reminder automation + auto phase/elimination cron (§21.8).
 Rules source of truth: `docs/challenge-rules.md`.
 (Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 Laporan export page.)

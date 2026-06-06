@@ -25,18 +25,22 @@ export type SavedFile = {
   sizeBytes: number;
 };
 
-/** Resolves a relative path under EBOOK_FILES_DIR, rejecting traversal attempts. */
-function resolveSafePath(relativeFilePath: string): string {
+/** Resolves a relative path under `baseDir`, rejecting traversal attempts. */
+function resolveUnder(baseDir: string, relativeFilePath: string): string {
   if (relativeFilePath.startsWith('/') || relativeFilePath.includes('..')) {
     throw new Error(`Unsafe filePath rejected: "${relativeFilePath}"`);
   }
-  const absPath = path.join(env.EBOOK_FILES_DIR, relativeFilePath);
-  const safeBase = path.resolve(env.EBOOK_FILES_DIR);
-  const safeAbs = path.resolve(absPath);
+  const safeBase = path.resolve(baseDir);
+  const safeAbs = path.resolve(path.join(baseDir, relativeFilePath));
   if (!safeAbs.startsWith(safeBase + path.sep) && safeAbs !== safeBase) {
     throw new Error(`Path traversal rejected: "${relativeFilePath}"`);
   }
   return safeAbs;
+}
+
+/** Resolves a relative path under EBOOK_FILES_DIR, rejecting traversal attempts. */
+function resolveSafePath(relativeFilePath: string): string {
+  return resolveUnder(env.EBOOK_FILES_DIR, relativeFilePath);
 }
 
 /** Resolves and reads an e-book/attachment from the private EBOOK_FILES_DIR.
@@ -111,4 +115,32 @@ export async function deleteUploadedFile(relativeFilePath: string): Promise<void
   } catch {
     // best-effort: a missing/locked file shouldn't fail the admin operation
   }
+}
+
+// ── Challenge proof videos — private, under CHALLENGE_MEDIA_DIR (§21) ────────
+
+const EXT_BY_MIME: Record<string, string> = {
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/3gpp': '3gp',
+  'video/webm': 'webm',
+};
+
+/** Writes an inbound proof video privately into CHALLENGE_MEDIA_DIR (random name, atomic).
+ *  Returns the relative path stored on the submission. Never under public/. */
+export async function saveChallengeMedia(buffer: Buffer, mimeType: string): Promise<string> {
+  await fs.mkdir(path.resolve(env.CHALLENGE_MEDIA_DIR), { recursive: true });
+  const ext = EXT_BY_MIME[mimeType] ?? 'mp4';
+  const relativeName = `${randomBytes(16).toString('hex')}.${ext}`;
+  const finalAbs = resolveUnder(env.CHALLENGE_MEDIA_DIR, relativeName);
+  const tmpAbs = `${finalAbs}.tmp`;
+  await fs.writeFile(tmpAbs, buffer);
+  await fs.rename(tmpAbs, finalAbs);
+  return relativeName;
+}
+
+/** Reads a stored proof video (for streaming to an authenticated admin only). */
+export async function readChallengeMedia(relativeFilePath: string): Promise<Buffer> {
+  const safeAbs = resolveUnder(env.CHALLENGE_MEDIA_DIR, relativeFilePath);
+  return fs.readFile(safeAbs);
 }

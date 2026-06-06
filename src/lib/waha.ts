@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { env } from './env';
 
 // INVARIANT: WAHA_BASE_URL must be https:// — validated in env.ts at startup.
@@ -48,6 +49,88 @@ export async function sendFile(p: WahaSendFileParams): Promise<WahaMessageResult
     throw new Error(`WAHA sendFile error (${res.status}): ${text}`);
   }
 
+  const data = await res.json() as { id?: string };
+  return { id: data.id ?? '' };
+}
+
+// ── Inbound (Challenge proof videos, §21.6) ─────────────────────────────────
+
+/** Verifies WAHA's webhook HMAC (SHA512 of the raw body, key = WAHA_WEBHOOK_SECRET).
+ *  Header is `X-Webhook-Hmac` (hex). Fails closed if the secret is not configured. */
+export function verifyWahaSignature(rawBody: string, headerHmac: string | null): boolean {
+  const secret = env.WAHA_WEBHOOK_SECRET;
+  if (!secret || !headerHmac) return false;
+  const expected = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+  const a = Buffer.from(expected, 'hex');
+  const b = Buffer.from(headerHmac, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/** Downloads inbound media from a WAHA `media.url` (auth via X-Api-Key; https only). */
+export async function fetchInboundMedia(
+  mediaUrl: string,
+): Promise<{ buffer: Buffer; mimeType: string; sizeBytes: number }> {
+  if (!mediaUrl.startsWith('https://')) {
+    throw new Error('WAHA media.url must be https:// — refusing to fetch over plain HTTP.');
+  }
+  const res = await fetch(mediaUrl, { headers: { 'X-Api-Key': env.WAHA_API_KEY } });
+  if (!res.ok) {
+    throw new Error(`WAHA media fetch error (${res.status})`);
+  }
+  const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'application/octet-stream';
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { buffer, mimeType, sizeBytes: buffer.length };
+}
+
+// ── Humanized send sequence (anti-spam, §12.2.1) ────────────────────────────
+
+async function wahaPost(path: string, body: unknown): Promise<Response> {
+  const baseUrl = env.WAHA_BASE_URL;
+  if (!baseUrl.startsWith('https://')) {
+    throw new Error('WAHA_BASE_URL must start with https:// — refusing to call over plain HTTP.');
+  }
+  return fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Api-Key': env.WAHA_API_KEY },
+    body: JSON.stringify({ session: env.WAHA_SESSION, ...(body as object) }),
+  });
+}
+
+/** Typing delay (ms) scaled to message length, with jitter. Pure → testable. */
+export function typingDelayMs(text: string, rnd: number = Math.random()): number {
+  const base = 800;
+  const perChar = 35;
+  const cap = 6000;
+  const scaled = Math.min(base + text.length * perChar, cap);
+  return Math.round(scaled * (0.7 + rnd * 0.6)); // ±30% jitter
+}
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/**
+ * Sends a text the human-like way to avoid spam flags (§12.2.1):
+ * sendSeen → startTyping → wait(scaled) → stopTyping → sendText.
+ * Use this for ALL conversational/reminder sends (e.g. the D12 challenge reminders).
+ */
+export async function sendTextHumanized(p: {
+  chatId: string;
+  text: string;
+  messageId?: string;
+}): Promise<WahaMessageResult> {
+  try {
+    await wahaPost('/api/sendSeen', { chatId: p.chatId, messageIds: p.messageId ? [p.messageId] : undefined });
+    await wahaPost('/api/startTyping', { chatId: p.chatId });
+    await sleep(typingDelayMs(p.text));
+    await wahaPost('/api/stopTyping', { chatId: p.chatId });
+  } catch {
+    // Best-effort presence signals — never block the actual send on them.
+  }
+  const res = await wahaPost('/api/sendText', { chatId: p.chatId, text: p.text });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`WAHA sendText error (${res.status}): ${errText}`);
+  }
   const data = await res.json() as { id?: string };
   return { id: data.id ?? '' };
 }

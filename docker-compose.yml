@@ -16,6 +16,7 @@ services:
     env_file: .env
     volumes:
       - /data/ebooks:/data/ebooks:Z   # private e-book volume; SELinux-labelled (:Z)
+      - /data/challenge-media:/data/challenge-media:Z   # private challenge proof videos (§21)
     depends_on:
       - postgres
     restart: unless-stopped           # no host port — reached via Caddy only

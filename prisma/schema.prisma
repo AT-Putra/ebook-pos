@@ -24,6 +24,7 @@ model Product {
   updatedAt   DateTime @updatedAt
   orders      Order[]
   attachments ProductAttachment[]
+  challenge   Challenge?
 }
 
 model ProductAttachment {
@@ -48,6 +49,7 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   orders    Order[]
+  challengeParticipations ChallengeParticipant[]
 
   @@unique([email, whatsapp])
   @@index([whatsapp])
@@ -82,6 +84,7 @@ model Order {
   product               Product     @relation(fields: [productId], references: [id])
   delivery              Delivery?
   events                PaymentEvent[]
+  challengeParticipant  ChallengeParticipant?
 
   @@index([status])
   @@index([trackingId])
@@ -186,4 +189,76 @@ model RateLimitConfig {
   maxRequests   Int      @default(10) // per IP per window on /api/checkout
   windowSeconds Int      @default(60)
   updatedAt     DateTime @updatedAt
+}
+
+// ── Challenge / reward module (§21) ────────────────────────────────────
+model Challenge {
+  id                   String   @id @default(cuid())
+  productId            String   @unique // one challenge per program (Product)
+  isActive             Boolean  @default(false)
+  startWindowDays      Int      @default(14)
+  durationDays         Int      @default(90)
+  finalProofWindowDays Int      @default(14)
+  phases               Json // [{ name, focus, startDay, endDay }]
+  videoMaxSeconds      Int      @default(30)
+  videoMaxSizeMb       Int      @default(10)
+  videoFormat          String   @default("mp4")
+  rewardsText          String?
+  winnerTiers          Json // [{ label, prize, count }]
+  contactInfo          String?
+  messageTemplates     Json // { triggerKey: "text" } — used by D12 automation
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  product              Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  participants         ChallengeParticipant[]
+}
+
+enum ParticipantStatus {
+  PENDING_INITIAL_REVIEW
+  RUNNING
+  PENDING_FINAL_REVIEW
+  COMPLETED
+  DROPPED
+}
+
+model ChallengeParticipant {
+  id               String            @id @default(cuid())
+  challengeId      String
+  customerId       String
+  orderId          String            @unique // one entry per PAID order
+  status           ParticipantStatus @default(PENDING_INITIAL_REVIEW)
+  purchaseAt       DateTime // snapshot of order.paidAt (start-window anchor)
+  startAt          DateTime? // = initial proof received date (challenge day 1)
+  initialWeightKg  Float?
+  finalSubmittedAt DateTime?
+  finalWeightKg    Float?
+  percentLoss      Float?
+  dropReason       String? // "eliminated_initial" | "eliminated_final" | "disqualified" | free text
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  challenge        Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  customer         Customer          @relation(fields: [customerId], references: [id])
+  order            Order             @relation(fields: [orderId], references: [id])
+  submissions      ChallengeSubmission[]
+
+  @@index([challengeId, status])
+}
+
+model ChallengeSubmission {
+  id             String   @id @default(cuid())
+  participantId  String
+  kind           String // "initial" | "final"
+  receivedAt     DateTime @default(now())
+  fromNumber     String // sender WhatsApp (normalized digits)
+  wahaMessageId  String?  @unique // dedupe inbound webhook deliveries (payload.id)
+  mediaPath      String? // private path under CHALLENGE_MEDIA_DIR (never public/)
+  mimeType       String?
+  sizeBytes      Int?
+  verifiedAt     DateTime?
+  rejectedReason String?
+  rawPayload     Json?
+  participant    ChallengeParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([participantId])
 }

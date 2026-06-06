@@ -16,7 +16,9 @@ const envSchema = z.object({
   }),
   WAHA_API_KEY: z.string().min(1),
   WAHA_SESSION: z.string().default('default'),
+  WAHA_WEBHOOK_SECRET: z.string().optional().default(''), // HMAC key for /api/webhooks/waha (§21.6)
   EBOOK_FILES_DIR: z.string().min(1),
+  CHALLENGE_MEDIA_DIR: z.string().optional().default('/data/challenge-media'), // private proof videos (§21)
   ADMIN_TOKEN: z.string().min(1),
   CRON_SECRET: z.string().min(1),
 });

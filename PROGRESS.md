@@ -8,8 +8,8 @@
 |---|---|
 | PRD version in sync with | 0.9.0 |
 | Last updated | 2026-06-06 |
-| Overall status | F1–F7 + dashboard D1–D3.1 + D8/D9 + D10 Program + Card UI deployed; **Challenge module (D11) specced — awaiting go-ahead to build** |
-| Repo working state | green (build passes, 118 tests pass, tsc clean) |
+| Overall status | F1–F7 + dashboard D1–D3.1 + D8/D9 + D10 Program + Card UI deployed; **Challenge module (D11) built (green) — pending VPS deploy + migration** |
+| Repo working state | green (build passes, 141 tests pass, tsc clean) |
 
 ## How to run
 - Install: `npm install`
@@ -35,14 +35,16 @@
 - [x] **D8 — CORS domain allowlist** (`AllowedOrigin` + `/api/checkout` CORS + `/api/admin/origins` + Pengaturan UI) — PRD §20.9
 - [x] **D9 — Checkout rate limit** (`RateLimitConfig` + per-IP limit on `/api/checkout` + `/api/admin/rate-limit` + Pengaturan UI; configurable + disableable) — PRD §20.10
 - [x] **D10 — Program management** (Product gains `programName`/`salesStartAt`/`salesEndAt` + `ProductAttachment` + `DeliveryItem`; `/admin/program` list+add+edit modal with e-book PDF upload **+ attachment PDFs** add/remove; `lib/programs.ts` sales-window; checkout `403` after period ends; buyer gets **e-book + all attachments** (per-file exactly-once via `DeliveryItem`); live Program filter on Leads Report; Program is the future Challenge's reference entity) — PRD §20.11 *(built green: 118 tests + tsc + build; pending VPS deploy + migration)*
-- [ ] **D11 — Challenge module** (§21): `Challenge`/`ChallengeParticipant`/`ChallengeSubmission` + `ParticipantStatus`; **Challenge Configuration** menu (`/admin/challenge`, per-program config, seeded from `docs/challenge-rules.md`); **User/Active** menu (`/admin/active`, participant list + verify proofs + weights + %-loss); **WAHA inbound capture** (`/api/webhooks/waha`) → private `CHALLENGE_MEDIA_DIR`; `lib/challenge.ts` pure logic. *(specced; scope = 2 menus + capture only; awaiting go-ahead)*
+- [x] **D11 — Challenge module** (§21): `Challenge`/`ChallengeParticipant`/`ChallengeSubmission` + `ParticipantStatus` (migration `20260606010000_add_challenge_module`); **Challenge Configuration** (`/admin/challenge`, `ChallengeConfig.tsx`, per-program config seeded from `docs/challenge-rules.md`); **User/Active** (`/admin/active`, `ParticipantList.tsx` + manage modal: verify proofs, weights, drop, %-loss leaderboard); **WAHA inbound** (`/api/webhooks/waha`, HMAC-SHA512 auth, dedupe on payload.id, media → private `CHALLENGE_MEDIA_DIR`); admin APIs `challenges/[productId]`, `participants[/id][/proof/[kind]]`; `lib/challenge.ts` pure logic + `sendTextHumanized` in `lib/waha.ts`. *(built green: 141 tests + tsc + build; pending VPS deploy + migration)*
 - [ ] **D12 — Challenge WA automation** (§21.8, deferred): scheduled outbound reminders + auto phase/elimination cron + pre-start tracking + Active KPI wiring
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
-- **D11 Challenge module — SPECCED (PRD 0.9.0 §21), awaiting go-ahead to code.** Scope (confirmed with
-  owner): **2 menus + WAHA inbound capture only**; outbound reminders + auto-transition cron are D12.
-  Rules source of truth: `docs/challenge-rules.md`. Build plan:
+- **D11 Challenge module — BUILT (green), not yet deployed.** All steps below done. 141 tests + tsc +
+  build green. **Deploy:** `git pull && sudo docker compose up -d --build` **then** run the migration
+  (`node_modules/.bin/prisma migrate deploy`); add `CHALLENGE_MEDIA_DIR` volume (now in docker-compose.yml)
+  + set `WAHA_WEBHOOK_SECRET` in `.env`; configure the WAHA session webhook (`events:["message"]`,
+  `url: https://<app>/api/webhooks/waha`, `hmac.key = WAHA_WEBHOOK_SECRET`). Original build plan:
   1. Schema + migration: `Challenge` (1:1 Product, config + JSON phases/winnerTiers/messageTemplates),
      `ChallengeParticipant` (per PAID order), `ChallengeSubmission` (inbound proof), `ParticipantStatus`
      enum; relations on Product/Customer/Order. Env: `WAHA_WEBHOOK_SECRET`, `CHALLENGE_MEDIA_DIR`.
@@ -64,11 +66,12 @@
   auth mechanism → `WAHA_WEBHOOK_SECRET`; ~10 MB video limit) — open question #14.
 
 ## Next up
-- Get owner go-ahead → build D11 per the plan above.
-- Deploy will need: new migration (`prisma migrate deploy`), `CHALLENGE_MEDIA_DIR` volume mounted RW
-  (like `/data/ebooks`), `WAHA_WEBHOOK_SECRET` in `.env`, and WAHA configured to POST inbound events to
-  `https://<app>/api/webhooks/waha`.
-- (D10 already deployed by owner: migrate deploy run + app brought up.)
+- **Deploy D11** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`.
+  Then set `WAHA_WEBHOOK_SECRET` in `.env`, ensure `/data/challenge-media` exists, and configure the
+  WAHA session webhook (`events:["message"]`, url `/api/webhooks/waha`, `hmac.key=WAHA_WEBHOOK_SECRET`).
+- **D12** (deferred): challenge WA reminder automation + auto phase/elimination cron (§21.8) using
+  `sendTextHumanized` + `Challenge.messageTemplates`; wire dashboard Active KPIs.
+- (D10 already deployed by owner.)
 
 ## Decisions made (carry forward — do not re-litigate)
 - **SLC**, not MVP: one product flow, no customer accounts/login.
@@ -155,6 +158,21 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — **D11 Challenge module BUILT** (green: 141 tests, tsc, `npm run build`). Schema:
+  `Challenge` (1:1 Product, JSON phases/winnerTiers/messageTemplates) + `ChallengeParticipant` (per PAID
+  order) + `ChallengeSubmission` + `ParticipantStatus` (migration `20260606010000_add_challenge_module`).
+  `lib/challenge.ts` (pure `dayOfChallenge`/`currentPhase`/`percentLoss`/`participantView`/
+  `defaultChallengeConfig` seeded from rules) + `lib/challenge-serialize.ts`. `lib/waha.ts` gained
+  `verifyWahaSignature` (HMAC-SHA512), `fetchInboundMedia`, and `sendTextHumanized` (§12.2.1 anti-spam) +
+  pure `typingDelayMs`. `lib/files.ts` gained `saveChallengeMedia`/`readChallengeMedia` (private
+  `CHALLENGE_MEDIA_DIR`). Inbound webhook `/api/webhooks/waha` (HMAC auth, dedupe payload.id, match
+  buyer→PAID order→active challenge, download media.url with X-Api-Key, store privately, create
+  participant/submission). Admin APIs: `challenges/[productId]` (GET/PUT upsert), `participants`
+  (GET ?programId&group), `participants/[id]` (PATCH verify/reject/drop/note), `participants/[id]/proof/
+  [kind]` (stream private video). UI: `ChallengeConfig.tsx` + `/admin/challenge`; `ParticipantList.tsx`
+  (+manage modal) + `/admin/active`; Sidebar adds Challenge + enables Users/Active. env
+  `WAHA_WEBHOOK_SECRET`+`CHALLENGE_MEDIA_DIR` (+ .env.example, docker-compose volume). Tests:
+  challenge.test.ts (24) + waha.test.ts. Pending VPS deploy.
 - 2026-06-06 — D11 spec: confirmed the **WAHA inbound + send contract** from the provider docs and folded
   it in. Inbound: `message` event, media via `payload.media.url` (download w/ `X-Api-Key`), HMAC-SHA512
   `X-Webhook-Hmac` auth (key=`WAHA_WEBHOOK_SECRET`), dedupe on `payload.id` (§21.6, Q14 resolved). Added

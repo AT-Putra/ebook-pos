@@ -1461,9 +1461,11 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
   type, then store under **`CHALLENGE_MEDIA_DIR`** with a generated traversal-safe name (reuse the
   `lib/files.ts` temp→rename pattern) — **private, never under `public/`, never served statically**
   (invariant #4 extends to proof videos). If `hasMedia` but no `media.url`, log (WAHA didn't download it).
-- **Classify initial vs final:** if the participant has no `initial` submission yet → `kind="initial"`
-  (create the participant if needed, status `PENDING_INITIAL_REVIEW`); else if `RUNNING` → `kind="final"`
-  (status `PENDING_FINAL_REVIEW`). Record a `ChallengeSubmission`. Always ack `200` fast.
+- **Classify initial vs final by whether the challenge has started** (`participant.startAt`): not
+  started → `kind="initial"` (so a re-sent initial proof after a rejection is still treated as initial);
+  started (`RUNNING`) → `kind="final"` (status → `PENDING_FINAL_REVIEW`). Upsert the participant by
+  `orderId` (no create race) and create the `ChallengeSubmission` idempotently (P2002 on `wahaMessageId`
+  → no-op `200`). Always ack `200` fast.
 - The webhook **never auto-verifies and never auto-replies** in D11; an admin always reviews (the rules
   require human judgment). Any future auto-reply must use the humanized send sequence (§12.2).
 

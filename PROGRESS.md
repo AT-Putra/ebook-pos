@@ -158,6 +158,13 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — D11 review/bug-fix pass on the inbound webhook (`/api/webhooks/waha`): (1) classify
+  initial vs final by `participant.startAt` (not "has an initial submission") so a **re-sent initial
+  proof after a rejection** is still treated as initial, not final; (2) **upsert** the participant by
+  orderId + create the submission inside a P2002 try/catch so WAHA's **concurrent retries** can't 500 on
+  a unique-violation race (idempotent); (3) match the PAID order **by `customer.whatsapp` directly** so a
+  buyer with a second Customer row (same number, different email) still matches. PRD §21.6 updated. 141
+  tests + tsc + build green.
 - 2026-06-06 — **D11 Challenge module BUILT** (green: 141 tests, tsc, `npm run build`). Schema:
   `Challenge` (1:1 Product, JSON phases/winnerTiers/messageTemplates) + `ChallengeParticipant` (per PAID
   order) + `ChallengeSubmission` + `ParticipantStatus` (migration `20260606010000_add_challenge_module`).

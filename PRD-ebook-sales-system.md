@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.9.0 |
-| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12), deployed; **Challenge module (D11) built (green) — pending VPS deploy + migration** |
+| Version | 0.9.1 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12), deployed; **Challenge module (D11, + template test-send) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.9.1** (2026-06-06) — **Challenge config: test-send for WA templates.** The Challenge Configuration "Kontak & Template WhatsApp" card gains a **test recipient number** field and a **"Kirim tes"** button under each template textarea — it substitutes `{{contact}}` and sends that message via the humanized sequence (§12.2.1) so the operator can preview reminders before the D12 automation. New endpoint `POST /api/admin/whatsapp/test` (`{ whatsapp, text }`, `requireAdmin`). §21.5.
 - **0.9.0** (2026-06-06) — **Challenge module (slice D11) — BUILT (green: 141 tests, tsc, build; pending VPS deploy + migration).** The previously-deferred reward challenge (§15) is now built. Two new admin menus: **Challenge Configuration** (`/admin/challenge`) — pick a program, edit its challenge config (timeline, video rules, rewards/winner tiers, WA templates + contact — all editable, seeded from the rules) — and **User/Active** (`/admin/active`) — the list + status of participants. Proof videos (initial/final weigh-in) are **auto-captured via a WAHA inbound webhook** (`/api/webhooks/waha`) into private storage; the admin verifies each video and enters the weight. New schema: `Challenge` (1:1 with a `Product`), `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` enum. **Scope of D11 = the 2 menus + inbound capture only**; the outbound WhatsApp reminder automation and automatic phase/elimination cron are a **later slice (D12)**. Rules source of truth: `docs/challenge-rules.md`. Full spec: new **§21**. WAHA inbound contract confirmed from the provider docs (event `message`; media via `media.url` downloaded with `X-Api-Key`; HMAC-SHA512 `X-Webhook-Hmac` auth; dedupe on `payload.id`) — §21.6, open question #14 resolved. Added **§12.2.1 humanized send sequence** (sendSeen → startTyping → wait → stopTyping → sendText) as a required anti-spam standard for all conversational/reminder sends.
 - **0.8.1** (2026-06-06) — **Dashboard UI consistency (§20.12).** Added a shared **`Card` / `CardStack` / `PageHeader`** primitive set (`src/components/admin/Card.tsx`) so every admin section is the **same width, padding, radius, and shadow** — fixes the uneven cards on the Pengaturan page. A single `CONTENT_MAX_WIDTH` constrains form pages; the `DataTable` shell now matches the card style. **Standing requirement:** all current and future admin menus compose their UI from these primitives (no ad-hoc card `<div>`s). Pengaturan, Program, and Leads Report refactored onto it.
 - **0.8.0** (2026-06-06) — **Built (green: 118 tests, tsc, build; pending VPS deploy + migration).** Added **§20.11 Program management (slice D10)**: a login-gated **Program** page (`/admin/program`) to configure the sellable e-books. It lists programs in a TanStack `DataTable` (id, product name, program name, sales period, price, status) with an **Add Program** button and per-row **Edit**; the add/edit form can **upload the PDF e-book**, written privately into `EBOOK_FILES_DIR` (never under `public/`, never served statically — invariant #4). Each program carries a **sales window** (`salesStartAt`/`salesEndAt`, WIB); **once the period ends the e-book can no longer be bought** — the landing page hides the form and `/api/checkout` rejects with `403`. `Product` gains `programName`, `salesStartAt`, `salesEndAt` (§9). The **Program** dropdown on the Leads Report becomes **live** — it filters metrics by program/product via `/api/admin/report?programId=…` (§20.4/§20.5); the challenge-tied **Active / Conv. Rate Active** KPIs stay stubbed (§20.2). New `lib/programs.ts` (pure `isOnSale` / sales-status) + private upload handling in `lib/files.ts`; admin CRUD at `/api/admin/programs[/{id}]`. A program may also carry **extra attachment PDFs** (`ProductAttachment`, e.g. a separate to-do-list PDF) uploadable on create and add/removable on edit; on purchase the buyer receives the **e-book + every attachment** over WhatsApp. To keep delivery exactly-once across multiple files, `Delivery` now has one **`DeliveryItem` per file** (e-book + each attachment), snapshotted at purchase; a retry re-sends only the items not yet `SENT` (invariant #3). The **Program** is the entity the future **Challenge module (§15)** will reference.
@@ -528,6 +529,7 @@ ebook-sales/
 │   │           ├── participants/route.ts        # GET: list participants (?programId &state)       [D11]
 │   │           ├── participants/[id]/route.ts   # PATCH: verify proof / set weight / drop          [D11]
 │   │           ├── participants/[id]/proof/[kind]/route.ts # GET: stream the private proof video    [D11]
+│   │           ├── whatsapp/test/route.ts       # POST: send a test WA message (template preview)    [D11]
 │   │           ├── orders/route.ts              # GET: list/filter orders
 │   │           └── deliveries/[id]/resend/route.ts  # POST: manual re-send
 │   ├── components/
@@ -1436,6 +1438,10 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
   (label/prize/count rows, add/remove); contact info; WA templates (a textarea per trigger key — stored
   for D12). **Save** → `PUT /api/admin/challenges/{productId}` (upsert by `productId`, `requireAdmin`,
   Zod-validated; JSON fields validated for shape).
+- **Test-send (0.9.1):** the templates card has a **test recipient number** field and a **"Kirim tes"**
+  button under each template; it substitutes `{{contact}}` → `contactInfo` and POSTs `{ whatsapp, text }`
+  to `POST /api/admin/whatsapp/test` (`requireAdmin`), which normalizes the number and sends via
+  `sendTextHumanized` (§12.2.1). Per-template status (Mengirim… / Terkirim ✓ / error).
 
 ### 21.6 WAHA inbound capture (`/api/webhooks/waha`)
 - **Auth:** authenticate every call with `WAHA_WEBHOOK_SECRET` (provider's webhook auth — header/HMAC or

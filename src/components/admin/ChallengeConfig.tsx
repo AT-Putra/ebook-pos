@@ -25,6 +25,9 @@ export function ChallengeConfig() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
+  const [testPhone, setTestPhone] = useState('');
+  const [testStatus, setTestStatus] = useState<Record<string, string>>({});
+  const [testingKey, setTestingKey] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -69,6 +72,27 @@ export function ChallengeConfig() {
   }
 
   function patch(p: Partial<Cfg>) { setCfg(c => (c ? { ...c, ...p } : c)); }
+
+  async function sendTest(key: string) {
+    if (!cfg) return;
+    if (!testPhone.trim()) { setTestStatus(s => ({ ...s, [key]: 'Isi nomor tes dulu.' })); return; }
+    const text = (cfg.messageTemplates[key] ?? '').replaceAll('{{contact}}', cfg.contactInfo || '-');
+    setTestingKey(key);
+    setTestStatus(s => ({ ...s, [key]: 'Mengirim…' }));
+    try {
+      const res = await fetch('/api/admin/whatsapp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp: testPhone, text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setTestStatus(s => ({ ...s, [key]: res.ok ? 'Terkirim ✓' : (data.error ?? 'Gagal mengirim.') }));
+    } catch {
+      setTestStatus(s => ({ ...s, [key]: 'Gagal mengirim.' }));
+    } finally {
+      setTestingKey(null);
+    }
+  }
 
   async function save() {
     if (!cfg || !programId) return;
@@ -167,16 +191,33 @@ export function ChallengeConfig() {
             </Card>
 
             <Card title="Kontak & Template WhatsApp" description="Template dipakai oleh reminder otomatis (slice berikutnya). {{contact}} diganti dengan kontak di bawah.">
-              <div style={{ marginBottom: 12 }}>
-                <label style={lbl}>Kontak (info lebih lanjut)</label>
-                <input value={cfg.contactInfo} onChange={e => patch({ contactInfo: e.target.value })} placeholder="0812-xxxx-xxxx" style={{ ...inp, maxWidth: 280 }} />
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ flex: '1 1 240px' }}>
+                  <label style={lbl}>Kontak (info lebih lanjut)</label>
+                  <input value={cfg.contactInfo} onChange={e => patch({ contactInfo: e.target.value })} placeholder="0812-xxxx-xxxx" style={inp} />
+                </div>
+                <div style={{ flex: '1 1 240px' }}>
+                  <label style={lbl}>Nomor tujuan tes (kirim contoh pesan)</label>
+                  <input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="0812-xxxx-xxxx" style={inp} />
+                </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {Object.entries(cfg.messageTemplates).map(([key, val]) => (
                   <div key={key}>
                     <label style={lbl}>{TEMPLATE_LABELS[key] ?? key}</label>
                     <textarea value={val} onChange={e => patch({ messageTemplates: { ...cfg.messageTemplates, [key]: e.target.value } })}
                       rows={2} style={{ ...inp, resize: 'vertical', fontSize: '0.8rem' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                      <button type="button" onClick={() => sendTest(key)} disabled={testingKey === key}
+                        style={{ padding: '5px 12px', background: '#fff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', opacity: testingKey === key ? 0.6 : 1 }}>
+                        {testingKey === key ? 'Mengirim…' : 'Kirim tes'}
+                      </button>
+                      {testStatus[key] && (
+                        <span style={{ fontSize: '0.75rem', color: testStatus[key] === 'Terkirim ✓' ? '#16a34a' : testStatus[key] === 'Mengirim…' ? '#64748b' : '#dc2626' }}>
+                          {testStatus[key]}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

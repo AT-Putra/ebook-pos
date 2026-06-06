@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.9.0 |
+| PRD version in sync with | 0.9.1 |
 | Last updated | 2026-06-06 |
 | Overall status | F1–F7 + dashboard D1–D3.1 + D8/D9 + D10 Program + Card UI deployed; **Challenge module (D11) built (green) — pending VPS deploy + migration** |
 | Repo working state | green (build passes, 141 tests pass, tsc clean) |
@@ -158,6 +158,10 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — D11 add-on (PRD 0.9.1): **test-send for WA templates** in Challenge Configuration. The
+  templates card gains a test recipient number + a "Kirim tes" button under each template; it substitutes
+  `{{contact}}` and POSTs to new `POST /api/admin/whatsapp/test` (`requireAdmin` → `sendTextHumanized`),
+  with per-template status. Lets the operator preview reminders before D12 automation. tsc + build green.
 - 2026-06-06 — D11 review/bug-fix pass on the inbound webhook (`/api/webhooks/waha`): (1) classify
   initial vs final by `participant.startAt` (not "has an initial submission") so a **re-sent initial
   proof after a rejection** is still treated as initial, not final; (2) **upsert** the participant by

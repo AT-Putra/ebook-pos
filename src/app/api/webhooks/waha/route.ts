@@ -149,6 +149,12 @@ export async function POST(req: NextRequest) {
       where: { id: participant.id },
       data: { status: ParticipantStatus.PENDING_FINAL_REVIEW, finalSubmittedAt: new Date() },
     });
+  } else if (kind === 'initial' && participant.status === ParticipantStatus.AWAITING_INITIAL) {
+    // The auto-created (on-PAID) participant has now sent their initial proof → ready for review.
+    await db.challengeParticipant.update({
+      where: { id: participant.id },
+      data: { status: ParticipantStatus.PENDING_INITIAL_REVIEW },
+    });
   }
 
   console.log(`${TAG} accepted: participant=%s kind=%s stored=%s%s`,

@@ -39,7 +39,7 @@ done, idempotent, and recoverable.
 - `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`)
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit; APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
-- `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`; templates card has a **test-send**: per-template "Kirim tes" → `POST /api/admin/whatsapp/test`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`, `/whatsapp/test`. `lib/challenge.ts` = pure day/phase/%loss/status logic. **D11 = 2 menus + capture only**; WA reminder automation + auto-transitions = deferred D12. Rules: `docs/challenge-rules.md`.
+- `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`; templates card has a **test-send**: per-template "Kirim tes" → `POST /api/admin/whatsapp/test`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`, `/whatsapp/test`. `lib/challenge.ts` = pure day/phase/%loss/status logic + `computeDueReminders` (D12). **D12 automation:** Midtrans PAID auto-creates a participant (`AWAITING_INITIAL`); cron `/api/cron/challenge-reminders` (hourly, `isCron`) sends the reminder schedule once each (idempotent via `ChallengeReminderLog`) + auto-eliminates; `final_received` sent on verify-final. Rules: `docs/challenge-rules.md`.
 - `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)
@@ -102,10 +102,12 @@ are snapshotted from the product's e-book + `ProductAttachment`s when the `Deliv
 scaffold + schema + env → F7 products/seed → F1 checkout form → F2 order+Snap →
 F3 webhook → F4 WAHA base64 delivery → F5 retry/backoff → F6 admin+resend → SLC polish.
 **Done & deployed (F1–F7 + polish + D1–D3.1 dashboard + D8 CORS + D9 rate limit + D10 Program + §20.12 Card UI).**
-**Built, pending deploy: D11 Challenge module** (§21) — Challenge Configuration menu + User/Active
-participant menu + WAHA **inbound** proof-video capture (`/api/webhooks/waha`). Deploy needs the new
-migration, `CHALLENGE_MEDIA_DIR` volume, `WAHA_WEBHOOK_SECRET`, + WAHA session webhook → `/api/webhooks/waha`.
-**Deferred: D12** Challenge WA reminder automation + auto phase/elimination cron (§21.8).
+**Built, pending deploy: D11 Challenge module** (§21) + **D12 Challenge WA automation** (§21.8) —
+config + User/Active + WAHA inbound capture; **auto-create participant on PAID** (`AWAITING_INITIAL`);
+hourly cron `/api/cron/challenge-reminders` sends the reminder schedule (idempotent via `ChallengeReminderLog`)
++ auto-eliminates (H+15 no-initial / day-105 no-final); `final_received` sent by the verify-final action.
+Deploy needs the migrations, `CHALLENGE_MEDIA_DIR` volume, `WAHA_WEBHOOK_SECRET`, the WAHA session webhook
+→ `/api/webhooks/waha`, **and a system cron hitting `/api/cron/challenge-reminders` hourly**.
 Rules source of truth: `docs/challenge-rules.md`.
 (Later: D4 leads/purchase lists · D5 WA Logs +`DeliveryAttempt` · D6 user mgmt · D7 Laporan export page.)
 Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is updated.
@@ -148,10 +150,10 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
   spec it in the PRD (bump version + changelog) BEFORE building, so a fresh session can work from the docs.
 
 ## Deferred (do NOT build now)
-**D12 — Challenge WhatsApp automation** (§21.8): the scheduled outbound reminders (rules §7/§8) + the
-auto phase/elimination cron + pre-start participant tracking + wiring the dashboard Active KPIs. The
-challenge config/User-Active/inbound-capture (D11, §21) IS being built now — keep its schema/status
-forward-compatible with D12.
+- **Dashboard Active / Conv.Rate Active KPIs** — still stubbed (`0`/`—`); D12 left them out (open Q#15).
+  They'd compute off `ChallengeParticipant` (Active = `RUNNING` count) — wire only if asked.
+- Winner-announcement automation (the reward winners are read off the %-loss leaderboard manually).
+- Later optional slices: D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan.
 
 ## Open questions (resolve before the affected slice — see PRD §16)
 Single product vs catalog · tracking-ID semantics · email fallback if WhatsApp permanently fails ·

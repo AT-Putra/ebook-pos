@@ -4,6 +4,8 @@ import {
   currentPhase,
   percentLoss,
   participantView,
+  computeDueReminders,
+  renderTemplate,
   type ChallengePhase,
 } from '@/lib/challenge';
 import type { ParticipantStatus } from '@prisma/client';
@@ -108,5 +110,62 @@ describe('participantView', () => {
     const v = view('DROPPED', { dropReason: 'disqualified' });
     expect(v.group).toBe('dropped');
     expect(v.displayStatus).toBe('Diskualifikasi');
+  });
+
+  it('awaiting initial (auto-created on PAID) shows Menunggu Bukti Awal / pending', () => {
+    const v = view('AWAITING_INITIAL');
+    expect(v.group).toBe('pending');
+    expect(v.displayStatus).toBe('Menunggu Bukti Awal');
+  });
+});
+
+describe('computeDueReminders (D12 schedule)', () => {
+  const timing = { startWindowDays: cfg.startWindowDays, durationDays: cfg.durationDays, finalProofWindowDays: cfg.finalProofWindowDays, phases };
+  const base = D('2026-01-01T10:00:00+07:00');
+  const at = (days: number) => new Date(base.getTime() + days * 86_400_000);
+
+  it('AWAITING_INITIAL: after_purchase on day 0, then h7/h13/h14', () => {
+    const p = { status: 'AWAITING_INITIAL' as ParticipantStatus, purchaseAt: base, startAt: null, finalSubmittedAt: null };
+    expect(computeDueReminders(p, timing, new Set(), at(0)).send).toEqual(['after_purchase']);
+    expect(computeDueReminders(p, timing, new Set(), at(7)).send).toEqual(['after_purchase', 'h7']);
+    expect(computeDueReminders(p, timing, new Set(), at(14)).send).toEqual(['after_purchase', 'h7', 'h13', 'h14']);
+  });
+
+  it('AWAITING_INITIAL: skips already-sent keys (idempotent)', () => {
+    const p = { status: 'AWAITING_INITIAL' as ParticipantStatus, purchaseAt: base, startAt: null, finalSubmittedAt: null };
+    expect(computeDueReminders(p, timing, new Set(['after_purchase', 'h7']), at(7)).send).toEqual([]);
+  });
+
+  it('AWAITING_INITIAL: day 15 sends h15 and eliminates_initial', () => {
+    const p = { status: 'AWAITING_INITIAL' as ParticipantStatus, purchaseAt: base, startAt: null, finalSubmittedAt: null };
+    const r = computeDueReminders(p, timing, new Set(['after_purchase', 'h7', 'h13', 'h14']), at(15));
+    expect(r.send).toEqual(['h15']);
+    expect(r.drop).toBe('eliminated_initial');
+  });
+
+  it('RUNNING: phase markers at day 1/30/60/90', () => {
+    const p = { status: 'RUNNING' as ParticipantStatus, purchaseAt: base, startAt: base, finalSubmittedAt: null };
+    expect(computeDueReminders(p, timing, new Set(), at(0)).send).toEqual(['day1']); // day 1
+    expect(computeDueReminders(p, timing, new Set(['day1']), at(29)).send).toEqual(['day30']); // day 30
+    expect(computeDueReminders(p, timing, new Set(['day1', 'day30', 'day60']), at(89)).send).toEqual(['day90']); // day 90
+  });
+
+  it('RUNNING: final-proof reminders only while final not submitted; day 105 eliminates', () => {
+    const sent = new Set(['day1', 'day30', 'day60', 'day90', 'day97', 'day103', 'day104']);
+    const p = { status: 'RUNNING' as ParticipantStatus, purchaseAt: base, startAt: base, finalSubmittedAt: null };
+    const r = computeDueReminders(p, timing, sent, at(104)); // day 105
+    expect(r.send).toEqual(['day105']);
+    expect(r.drop).toBe('eliminated_final');
+
+    const submitted = { ...p, finalSubmittedAt: at(95) };
+    expect(computeDueReminders(submitted, timing, new Set(['day1', 'day30', 'day60', 'day90']), at(104)).send).toEqual([]);
+    expect(computeDueReminders(submitted, timing, new Set(['day1', 'day30', 'day60', 'day90']), at(104)).drop).toBeNull();
+  });
+});
+
+describe('renderTemplate', () => {
+  it('substitutes {{contact}} and falls back to "-"', () => {
+    expect(renderTemplate('hub : {{contact}}', '0812')).toBe('hub : 0812');
+    expect(renderTemplate('hub : {{contact}}', '')).toBe('hub : -');
   });
 });

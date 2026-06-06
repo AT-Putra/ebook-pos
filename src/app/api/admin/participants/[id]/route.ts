@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { ParticipantStatus } from '@prisma/client';
-import { percentLoss } from '@/lib/challenge';
+import { ParticipantStatus, Prisma } from '@prisma/client';
+import { percentLoss, renderTemplate } from '@/lib/challenge';
 import { serializeParticipant, challengeTiming } from '@/lib/challenge-serialize';
+import { sendTextHumanized } from '@/lib/waha';
+import { toChatId } from '@/lib/phone';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -31,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
 
   const participant = await db.challengeParticipant.findUnique({
     where: { id },
-    include: { challenge: true, submissions: true },
+    include: { challenge: true, submissions: true, customer: true },
   });
   if (!participant) {
     return NextResponse.json({ error: 'Peserta tidak ditemukan.' }, { status: 404 });
@@ -77,6 +79,8 @@ export async function PATCH(req: NextRequest, { params }: Props) {
         },
       });
       if (sub) await db.challengeSubmission.update({ where: { id: sub.id }, data: { verifiedAt: new Date(), rejectedReason: null } });
+      // Send the "final proof received / completed" confirmation once (best-effort, idempotent).
+      await sendFinalReceived(participant);
       break;
     }
     case 'reject_initial': {
@@ -109,4 +113,29 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     include: { customer: true, submissions: true },
   });
   return NextResponse.json({ participant: serializeParticipant(updated, challengeTiming(participant.challenge)) });
+}
+
+type FinalReceivedParticipant = Prisma.ChallengeParticipantGetPayload<{ include: { challenge: true; customer: true } }>;
+
+/** Sends the "bukti akhir diterima / selesai" confirmation once (best-effort; never blocks the verify). */
+async function sendFinalReceived(p: FinalReceivedParticipant): Promise<void> {
+  const templates = (p.challenge.messageTemplates as Record<string, string>) ?? {};
+  const tpl = templates['final_received'];
+  if (!tpl) return;
+  try {
+    await db.challengeReminderLog.create({ data: { participantId: p.id, key: 'final_received' } });
+  } catch {
+    return; // already sent (P2002) or transient — don't resend / don't block
+  }
+  try {
+    const result = await sendTextHumanized({ chatId: toChatId(p.customer.whatsapp), text: renderTemplate(tpl, p.challenge.contactInfo) });
+    await db.challengeReminderLog.update({
+      where: { participantId_key: { participantId: p.id, key: 'final_received' } },
+      data: { wahaMessageId: result.id },
+    });
+  } catch (err) {
+    await db.challengeReminderLog
+      .update({ where: { participantId_key: { participantId: p.id, key: 'final_received' } }, data: { error: err instanceof Error ? err.message : String(err) } })
+      .catch(() => {});
+  }
 }

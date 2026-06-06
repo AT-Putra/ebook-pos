@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.9.1 |
-| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12), deployed; **Challenge module (D11, + template test-send) built (green) — pending VPS deploy + migration** |
+| Version | 0.10.0 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.10.0** (2026-06-06) — **Challenge WhatsApp automation (slice D12) — BUILT.** Auto-creates a participant on **PAID** for a challenge-active program (`AWAITING_INITIAL` = "Menunggu Bukti Awal"); a new cron `GET /api/cron/challenge-reminders` (CRON_SECRET, hourly) sends the rules' reminder schedule via `sendTextHumanized` (each once, idempotent via new `ChallengeReminderLog`) and auto-eliminates at H+15 (no initial proof) / day-105 (no final proof). `final_received` confirmation is sent by the verify-final action. New enum value `AWAITING_INITIAL` + `ChallengeReminderLog` table; `lib/challenge.ts` gains pure `computeDueReminders`/`renderTemplate`. Dashboard Active KPIs remain stubbed (out of scope). §21.8.
 - **0.9.1** (2026-06-06) — **Challenge config: test-send for WA templates.** The Challenge Configuration "Kontak & Template WhatsApp" card gains a **test recipient number** field and a **"Kirim tes"** button under each template textarea — it substitutes `{{contact}}` and sends that message via the humanized sequence (§12.2.1) so the operator can preview reminders before the D12 automation. New endpoint `POST /api/admin/whatsapp/test` (`{ whatsapp, text }`, `requireAdmin`). §21.5.
 - **0.9.0** (2026-06-06) — **Challenge module (slice D11) — BUILT (green: 141 tests, tsc, build; pending VPS deploy + migration).** The previously-deferred reward challenge (§15) is now built. Two new admin menus: **Challenge Configuration** (`/admin/challenge`) — pick a program, edit its challenge config (timeline, video rules, rewards/winner tiers, WA templates + contact — all editable, seeded from the rules) — and **User/Active** (`/admin/active`) — the list + status of participants. Proof videos (initial/final weigh-in) are **auto-captured via a WAHA inbound webhook** (`/api/webhooks/waha`) into private storage; the admin verifies each video and enters the weight. New schema: `Challenge` (1:1 with a `Product`), `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` enum. **Scope of D11 = the 2 menus + inbound capture only**; the outbound WhatsApp reminder automation and automatic phase/elimination cron are a **later slice (D12)**. Rules source of truth: `docs/challenge-rules.md`. Full spec: new **§21**. WAHA inbound contract confirmed from the provider docs (event `message`; media via `media.url` downloaded with `X-Api-Key`; HMAC-SHA512 `X-Webhook-Hmac` auth; dedupe on `payload.id`) — §21.6, open question #14 resolved. Added **§12.2.1 humanized send sequence** (sendSeen → startTyping → wait → stopTyping → sendText) as a required anti-spam standard for all conversational/reminder sends.
 - **0.8.1** (2026-06-06) — **Dashboard UI consistency (§20.12).** Added a shared **`Card` / `CardStack` / `PageHeader`** primitive set (`src/components/admin/Card.tsx`) so every admin section is the **same width, padding, radius, and shadow** — fixes the uneven cards on the Pengaturan page. A single `CONTENT_MAX_WIDTH` constrains form pages; the `DataTable` shell now matches the card style. **Standing requirement:** all current and future admin menus compose their UI from these primitives (no ad-hoc card `<div>`s). Pengaturan, Program, and Leads Report refactored onto it.
@@ -441,6 +442,7 @@ model Challenge {                                // one reward challenge per pro
 }
 
 enum ParticipantStatus {
+  AWAITING_INITIAL         // bought, awaiting initial proof — auto-created on PAID (Menunggu Bukti Awal) [D12]
   PENDING_INITIAL_REVIEW   // initial proof received, awaiting admin verification (Menunggu Verifikasi)
   RUNNING                  // verified + started; phase derived from startAt (Challenge Berjalan / Fase X)
   PENDING_FINAL_REVIEW     // final proof received, awaiting admin verification
@@ -468,6 +470,7 @@ model ChallengeParticipant {
   customer      Customer          @relation(fields: [customerId], references: [id])
   order         Order             @relation(fields: [orderId], references: [id])
   submissions   ChallengeSubmission[]
+  reminders     ChallengeReminderLog[]
   @@index([challengeId, status])
 }
 
@@ -486,6 +489,17 @@ model ChallengeSubmission {                          // an inbound proof video (
   rawPayload    Json?
   participant   ChallengeParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
   @@index([participantId])
+}
+
+model ChallengeReminderLog {                          // idempotency log for sent reminders (D12, §21.8)
+  id            String   @id @default(cuid())
+  participantId String
+  key           String                               // trigger/template key, e.g. "after_purchase","h7","day90"
+  sentAt        DateTime @default(now())
+  wahaMessageId String?
+  error         String?
+  participant   ChallengeParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  @@unique([participantId, key])                     // each reminder at most once per participant
 }
 ```
 
@@ -519,6 +533,7 @@ ebook-sales/
 │   │       ├── webhooks/midtrans/route.ts       # POST: payment notification
 │   │       ├── webhooks/waha/route.ts           # POST: inbound WA proof videos (auto-capture)  [D11]
 │   │       ├── cron/process-deliveries/route.ts # GET: retry due deliveries
+│   │       ├── cron/challenge-reminders/route.ts # GET: send due WA reminders + auto-eliminate  [D12]
 │   │       └── admin/
 │   │           ├── auth/login/route.ts          # POST: username+password → session cookie
 │   │           ├── auth/logout/route.ts         # POST: clear session
@@ -973,10 +988,8 @@ Leads Report UI) are built, tested, and deployed; the stack was upgraded to the 
 sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF export (§20.8).
 **Done:** **D8** CORS domain allowlist (§20.9) · **D9** checkout rate limit (§20.10) · **D10** Program
 management (§20.11) · **§20.12** shared Card UI system.
-**Specced, building next:** **D11** Challenge module (§21) — Challenge Configuration menu + User/Active
-participant menu + WAHA **inbound** proof-video capture. (Scope: 2 menus + capture only.)
-**Deferred:** **D12** Challenge WhatsApp automation (§21.8) — the scheduled outbound reminders + the
-automatic phase/elimination cron (uses the schedule + templates in `docs/challenge-rules.md`).
+**Done:** **D11** Challenge module (§21) — Challenge Configuration + User/Active + WAHA inbound capture.
+**D12** Challenge WhatsApp automation (§21.8) — auto-create on PAID + hourly reminder cron + auto-elimination.
 Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
 **D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
 per-table CSV/PDF export already ships in D3.1).
@@ -1477,7 +1490,8 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
 
 ### 21.7 User/Active menu (`/admin/active`, `ParticipantList.tsx`)
 - A **program dropdown** + a **group filter** (Semua / Aktif / Selesai / Gugur / Menunggu verifikasi).
-- A `DataTable` (§20.12 styling) of participants (only those who started — open question #12) with
+- A `DataTable` (§20.12 styling) of participants — since **D12 auto-creates on PAID**, this now includes
+  pre-start buyers (`AWAITING_INITIAL` → "Menunggu Bukti Awal") as well as started ones — with
   columns: name, WhatsApp, **status** (`displayStatus` badge), **hari/fase** (derived), berat awal,
   berat akhir, **% turun** (sortable → leaderboard), tanggal mulai, aksi.
 - Row actions (→ `PATCH /api/admin/participants/{id}`, `requireAdmin`):
@@ -1491,13 +1505,41 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
 - `GET /api/admin/participants?programId=&group=` lists with the derived view fields computed server-side
   via `lib/challenge.ts`.
 
-### 21.8 Deferred — Challenge WhatsApp automation (slice D12)
-Not built in D11. Will add: a cron that, per participant timeline, **sends** the scheduled reminders
-(rules §7) using `Challenge.messageTemplates` (rules §8) via the **humanized send sequence** (§12.2.1 —
-sendSeen → startTyping → wait → stopTyping → sendText), and
-**auto-advances/eliminates** (day 30/60/90 markers, H+15 no-initial, day-105 no-final). Also auto-creates
-participants at PAID for the pre-start statuses (Pembelian / Menunggu Bukti Awal / Gugur Awal) and may
-wire the dashboard **Active** KPIs (open question #15). Keep D11 schema/status forward-compatible with this.
+### 21.8 Challenge WhatsApp automation (slice D12) `[DRAFT]`
+Automates the rules' reminder schedule (`docs/challenge-rules.md` §7/§8) and the two auto-eliminations.
+
+**Auto-create participants on PAID (decided):** when an `Order` transitions to **PAID** for a program
+whose `Challenge.isActive`, the Midtrans webhook upserts a `ChallengeParticipant` (status
+**`AWAITING_INITIAL`** = "Menunggu Bukti Awal", `purchaseAt = paidAt`). They appear in User/Active
+immediately and receive the start-window reminders. (Idempotent upsert by `orderId`.) When their initial
+video later arrives, the inbound webhook moves `AWAITING_INITIAL → PENDING_INITIAL_REVIEW`.
+
+**Scheduler (decided):** a cron-gated endpoint **`GET /api/cron/challenge-reminders`** (auth = `isCron`
+/ `CRON_SECRET`, like `process-deliveries`), hit **hourly** by system cron. It scans participants in
+`AWAITING_INITIAL` / `RUNNING`, computes due reminders + eliminations, sends, and logs.
+
+**Reminder rules (`lib/challenge.ts` `computeDueReminders(...)`, pure + tested).** Each key fires once
+(idempotent via `ChallengeReminderLog` `@@unique([participantId,key])`); a `>=` threshold means a missed
+hour still catches up. Days are WIB calendar days.
+- `AWAITING_INITIAL` (from `purchaseAt`): `after_purchase` (d≥0), `h7` (d≥7), `h13` (d≥13), `h14` (d≥14);
+  at **d ≥ startWindowDays+1** → send `h15` **and transition `DROPPED` (`eliminated_initial`)**.
+- `RUNNING` (from `startAt`, `day` = 1-based): `day1` (day≥1), `day30` (≥ phase1 end), `day60` (≥ phase2
+  end), `day90` (≥ durationDays). If the **final proof isn't in yet** (`finalSubmittedAt` null):
+  `day97` (≥ durationDays+7), `day103` (≥ +13), `day104` (≥ +14); at **day ≥ durationDays+finalProof
+  WindowDays+1** → send `day105` **and transition `DROPPED` (`eliminated_final`)**.
+- `final_received` is **event-based**, sent by the **verify-final admin action** (not the cron) right
+  after `COMPLETED`.
+
+**Sending.** Render the template (`{{contact}}` → `Challenge.contactInfo`) and send via
+`sendTextHumanized` (§12.2.1). Reserve the slot first (`ChallengeReminderLog` create; P2002 → already
+sent, skip) **then** send, recording `wahaMessageId` or `error` on the log. Reserving-before-sending
+favors **no double-send** (anti-spam) over guaranteeing delivery; failures are visible on the log row.
+
+**No phase status rows.** "Fase 1/2 Selesai" remain **derived** (§21.4) — the cron only sends the
+day-30/60/90 messages; it does not change status except for the two eliminations.
+
+**Out of scope (still deferred):** wiring the dashboard **Active** KPIs (open question #15) — left
+stubbed; and any winner-announcement automation.
 
 ### 21.9 Security & invariants
 - **Proof videos are private** (invariant #4 extends): stored under `CHALLENGE_MEDIA_DIR` outside the web
@@ -1519,8 +1561,15 @@ wire the dashboard **Active** KPIs (open question #15). Keep D11 schema/status f
       stream a proof video, verify initial (sets `RUNNING` + `startAt` + initial weight), verify final
       (sets `COMPLETED` + final weight + `percentLoss`), and drop with a reason; %-loss column sorts.
 - [ ] Sidebar gains **Challenge** (`/admin/challenge`) and enables **Users / Active** (`/admin/active`).
-- [ ] Outbound reminders + auto-transition cron are NOT built (deferred D12). Build green, tests green,
-      `tsc --noEmit` clean; migration + lockfile committed.
+
+**Acceptance criteria (D12 — automation, §21.8)**
+- [ ] `AWAITING_INITIAL` enum + `ChallengeReminderLog` migrated. On **PAID** for a challenge-active
+      program, a participant is auto-created (`AWAITING_INITIAL`); inbound initial video moves it to
+      `PENDING_INITIAL_REVIEW`. `computeDueReminders` unit-tested (start-window + running-phase + the two
+      eliminations + idempotency via sent-keys).
+- [ ] `GET /api/cron/challenge-reminders` (cron-gated) sends each due reminder **once** (humanized
+      sequence), logs it, and auto-`DROPPED`s at H+15 (no initial) / day-105 (no final). `final_received`
+      is sent by the verify-final action. Build/tests/tsc green; migration + lockfile committed.
 
 ### 21.11 Assumptions baked in (confirm before coding)
 1. A participant appears the moment their **initial proof video arrives** (status

@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { verifySignature, mapMidtransStatus } from '@/lib/midtrans';
 import { advanceOrderStatus } from '@/lib/orders';
 import { attemptDelivery } from '@/lib/delivery';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, ParticipantStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   let payload: Record<string, unknown>;
@@ -77,6 +77,23 @@ export async function POST(req: NextRequest) {
       attemptDelivery(deliveryId).catch(err =>
         console.error('[webhook] Delivery attempt error:', err),
       );
+
+      // Challenge (§21.8): auto-create a participant on PAID for a challenge-active program,
+      // so they get the start-window reminders. Idempotent upsert by orderId.
+      const challenge = await db.challenge.findUnique({ where: { productId: order.productId } });
+      if (challenge?.isActive && updated.paidAt) {
+        await db.challengeParticipant.upsert({
+          where: { orderId: order.id },
+          update: {},
+          create: {
+            challengeId: challenge.id,
+            customerId: order.customerId,
+            orderId: order.id,
+            status: ParticipantStatus.AWAITING_INITIAL,
+            purchaseAt: updated.paidAt,
+          },
+        }).catch(err => console.error('[webhook] Challenge participant create error:', err));
+      }
     }
   }
 

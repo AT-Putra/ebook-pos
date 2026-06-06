@@ -214,6 +214,7 @@ model Challenge {
 }
 
 enum ParticipantStatus {
+  AWAITING_INITIAL // bought, awaiting the initial proof (auto-created on PAID) — D12
   PENDING_INITIAL_REVIEW
   RUNNING
   PENDING_FINAL_REVIEW
@@ -241,8 +242,21 @@ model ChallengeParticipant {
   customer         Customer          @relation(fields: [customerId], references: [id])
   order            Order             @relation(fields: [orderId], references: [id])
   submissions      ChallengeSubmission[]
+  reminders        ChallengeReminderLog[]
 
   @@index([challengeId, status])
+}
+
+model ChallengeReminderLog {
+  id            String   @id @default(cuid())
+  participantId String
+  key           String // template/trigger key, e.g. "after_purchase", "h7", "day90"
+  sentAt        DateTime @default(now())
+  wahaMessageId String?
+  error         String?
+  participant   ChallengeParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, key]) // each reminder sent at most once per participant (idempotent)
 }
 
 model ChallengeSubmission {

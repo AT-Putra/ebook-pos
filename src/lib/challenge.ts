@@ -84,6 +84,11 @@ export function dayOfChallenge(startAt: Date | null | undefined, now: Date = new
   return Math.floor(days) + 1;
 }
 
+/** Whole WIB calendar days elapsed since `from` (0 on the same day). */
+export function daysSince(from: Date, now: Date = new Date()): number {
+  return Math.floor((wibMidnightMs(now) - wibMidnightMs(from)) / 86_400_000);
+}
+
 /** The phase whose [startDay,endDay] contains `day`, or the last phase if `day` is past the end. */
 export function currentPhase(phases: ChallengePhase[], day: number | null): { phase: ChallengePhase; index: number } | null {
   if (day == null || phases.length === 0) return null;
@@ -139,6 +144,10 @@ export function participantView(p: ParticipantLike, c: ChallengeTimingLike, now:
   let displayStatus: string;
 
   switch (p.status) {
+    case 'AWAITING_INITIAL':
+      group = 'pending';
+      displayStatus = 'Menunggu Bukti Awal';
+      break;
     case 'PENDING_INITIAL_REVIEW':
       group = 'pending';
       displayStatus = 'Menunggu Verifikasi Bukti Awal';
@@ -175,4 +184,67 @@ export function participantView(p: ParticipantLike, c: ChallengeTimingLike, now:
     percentLoss: p.percentLoss ?? percentLoss(p.initialWeightKg, p.finalWeightKg),
     finalOverdue,
   };
+}
+
+// ── D12: reminder scheduling (pure, tested) ─────────────────────────────────
+
+export type ReminderInput = {
+  status: ParticipantStatus;
+  purchaseAt: Date;
+  startAt: Date | null;
+  finalSubmittedAt: Date | null;
+};
+export type ReminderTiming = {
+  startWindowDays: number;
+  durationDays: number;
+  finalProofWindowDays: number;
+  phases: ChallengePhase[];
+};
+export type DropReason = 'eliminated_initial' | 'eliminated_final';
+export type DueReminders = { send: string[]; drop: DropReason | null };
+
+/**
+ * Given a participant's timeline + which reminder keys were already sent, returns the keys due now
+ * and any auto-elimination. Thresholds use `>=` so a missed cron hour still catches up; each key is
+ * gated by `sentKeys` for idempotency. See docs/challenge-rules.md §7 and PRD §21.8.
+ */
+export function computeDueReminders(
+  p: ReminderInput,
+  t: ReminderTiming,
+  sentKeys: Set<string>,
+  now: Date = new Date(),
+): DueReminders {
+  const send: string[] = [];
+  let drop: DropReason | null = null;
+  const add = (k: string) => { if (!sentKeys.has(k)) send.push(k); };
+
+  if (p.status === 'AWAITING_INITIAL') {
+    const d = daysSince(p.purchaseAt, now); // 0 on purchase day
+    if (d >= 0) add('after_purchase');
+    if (d >= 7) add('h7');
+    if (d >= 13) add('h13');
+    if (d >= 14) add('h14');
+    if (d >= t.startWindowDays + 1) { add('h15'); drop = 'eliminated_initial'; }
+  } else if (p.status === 'RUNNING' && p.startAt) {
+    const day = dayOfChallenge(p.startAt, now) ?? 0; // 1-based
+    const phase1End = t.phases[0]?.endDay ?? 30;
+    const phase2End = t.phases[1]?.endDay ?? 60;
+    if (day >= 1) add('day1');
+    if (day >= phase1End) add('day30');
+    if (day >= phase2End) add('day60');
+    if (day >= t.durationDays) add('day90');
+    if (!p.finalSubmittedAt) {
+      if (day >= t.durationDays + 7) add('day97');
+      if (day >= t.durationDays + 13) add('day103');
+      if (day >= t.durationDays + 14) add('day104');
+      if (day >= t.durationDays + t.finalProofWindowDays + 1) { add('day105'); drop = 'eliminated_final'; }
+    }
+  }
+
+  return { send, drop };
+}
+
+/** Substitutes `{{contact}}` in a template with the challenge contact (falls back to "-"). */
+export function renderTemplate(tpl: string, contact: string | null | undefined): string {
+  return tpl.replaceAll('{{contact}}', contact || '-');
 }

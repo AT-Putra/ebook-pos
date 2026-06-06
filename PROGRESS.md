@@ -6,10 +6,10 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.9.1 |
+| PRD version in sync with | 0.10.0 |
 | Last updated | 2026-06-06 |
-| Overall status | F1–F7 + dashboard D1–D3.1 + D8/D9 + D10 Program + Card UI deployed; **Challenge module (D11) built (green) — pending VPS deploy + migration** |
-| Repo working state | green (build passes, 141 tests pass, tsc clean) |
+| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation built (green) — pending VPS deploy + migration** |
+| Repo working state | green (build passes, tsc clean) |
 
 ## How to run
 - Install: `npm install`
@@ -36,7 +36,7 @@
 - [x] **D9 — Checkout rate limit** (`RateLimitConfig` + per-IP limit on `/api/checkout` + `/api/admin/rate-limit` + Pengaturan UI; configurable + disableable) — PRD §20.10
 - [x] **D10 — Program management** (Product gains `programName`/`salesStartAt`/`salesEndAt` + `ProductAttachment` + `DeliveryItem`; `/admin/program` list+add+edit modal with e-book PDF upload **+ attachment PDFs** add/remove; `lib/programs.ts` sales-window; checkout `403` after period ends; buyer gets **e-book + all attachments** (per-file exactly-once via `DeliveryItem`); live Program filter on Leads Report; Program is the future Challenge's reference entity) — PRD §20.11 *(built green: 118 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D11 — Challenge module** (§21): `Challenge`/`ChallengeParticipant`/`ChallengeSubmission` + `ParticipantStatus` (migration `20260606010000_add_challenge_module`); **Challenge Configuration** (`/admin/challenge`, `ChallengeConfig.tsx`, per-program config seeded from `docs/challenge-rules.md`); **User/Active** (`/admin/active`, `ParticipantList.tsx` + manage modal: verify proofs, weights, drop, %-loss leaderboard); **WAHA inbound** (`/api/webhooks/waha`, HMAC-SHA512 auth, dedupe on payload.id, media → private `CHALLENGE_MEDIA_DIR`); admin APIs `challenges/[productId]`, `participants[/id][/proof/[kind]]`; `lib/challenge.ts` pure logic + `sendTextHumanized` in `lib/waha.ts`. *(built green: 141 tests + tsc + build; pending VPS deploy + migration)*
-- [ ] **D12 — Challenge WA automation** (§21.8, deferred): scheduled outbound reminders + auto phase/elimination cron + pre-start tracking + Active KPI wiring
+- [x] **D12 — Challenge WA automation** (§21.8): auto-create participant on PAID (`AWAITING_INITIAL`); hourly cron `/api/cron/challenge-reminders` sends the rules' reminder schedule (idempotent via `ChallengeReminderLog`) + auto-eliminates (H+15 / day-105); `final_received` on verify-final; `lib/challenge.ts` `computeDueReminders`. *(built green; Active KPI wiring still deferred — open Q#15)*
 - [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
 
 ## In progress
@@ -62,15 +62,19 @@
      `active/page.tsx` + `ParticipantList.tsx` (DataTable + verify/weight/drop actions + %-loss sort).
      Sidebar: add **Challenge** item; set **Users / Active** `ready: true`.
   6. Tests + tsc + build green; commit; push (pre-push hook). Update all 3 md "done" state.
-- **Open before/while coding:** confirm WAHA provider's **inbound** webhook (media form: URL vs base64;
-  auth mechanism → `WAHA_WEBHOOK_SECRET`; ~10 MB video limit) — open question #14.
+- **D12 — BUILT (green).** Auto-create on PAID (`AWAITING_INITIAL`) in the Midtrans webhook;
+  `lib/challenge.ts` `computeDueReminders` + `renderTemplate`; cron `/api/cron/challenge-reminders`
+  (isCron, hourly) sends due reminders once (reserve `ChallengeReminderLog` then send) + auto-eliminates;
+  inbound webhook moves `AWAITING_INITIAL → PENDING_INITIAL_REVIEW`; verify-final sends `final_received`.
 
 ## Next up
-- **Deploy D11** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`.
-  Then set `WAHA_WEBHOOK_SECRET` in `.env`, ensure `/data/challenge-media` exists, and configure the
-  WAHA session webhook (`events:["message"]`, url `/api/webhooks/waha`, `hmac.key=WAHA_WEBHOOK_SECRET`).
-- **D12** (deferred): challenge WA reminder automation + auto phase/elimination cron (§21.8) using
-  `sendTextHumanized` + `Challenge.messageTemplates`; wire dashboard Active KPIs.
+- **Deploy D11+D12** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`
+  (applies the challenge migrations incl. the `AWAITING_INITIAL` enum value + `ChallengeReminderLog`).
+  Then: set `WAHA_WEBHOOK_SECRET` in `.env`; ensure `/data/challenge-media` exists; configure the WAHA
+  session webhook (`events:["message"]`, url `/api/webhooks/waha`, `hmac.key=WAHA_WEBHOOK_SECRET`);
+  **add a system cron hitting `GET /api/cron/challenge-reminders` hourly** (Authorization: Bearer
+  `CRON_SECRET`), same pattern as `process-deliveries`.
+- Optional later: wire dashboard Active KPIs (open Q#15); D4/D5/D6/D7.
 - (D10 already deployed by owner.)
 
 ## Decisions made (carry forward — do not re-litigate)
@@ -158,6 +162,16 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-06 — **D12 Challenge WA automation BUILT (PRD 0.10.0 §21.8).** Owner decisions: auto-create
+  participant on PAID · external cron endpoint · (Active KPIs left deferred). Schema: enum value
+  `AWAITING_INITIAL` + `ChallengeReminderLog` (`@@unique([participantId,key])`); migration
+  `20260606020000_add_challenge_automation`. Midtrans webhook auto-creates the participant on PAID for a
+  challenge-active program. `lib/challenge.ts` +`computeDueReminders` (pure, tested) +`renderTemplate`
+  (`{{contact}}`). Cron `GET /api/cron/challenge-reminders` (isCron, hourly): scans AWAITING_INITIAL/
+  RUNNING, reserves `ChallengeReminderLog` then sends via `sendTextHumanized`, auto-DROPs at H+15 (no
+  initial) / day-105 (no final). Inbound webhook now moves AWAITING_INITIAL→PENDING_INITIAL_REVIEW;
+  verify-final sends `final_received`. participantView handles AWAITING_INITIAL ("Menunggu Bukti Awal").
+  Deploy adds an hourly cron hitting the new endpoint. tsc + tests + build green.
 - 2026-06-06 — D11 add-on (PRD 0.9.1): **test-send for WA templates** in Challenge Configuration. The
   templates card gains a test recipient number + a "Kirim tes" button under each template; it substitutes
   `{{contact}}` and POSTs to new `POST /api/admin/whatsapp/test` (`requireAdmin` → `sendTextHumanized`),

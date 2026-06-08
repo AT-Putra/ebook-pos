@@ -50,6 +50,7 @@ export async function sendFile(p: WahaSendFileParams): Promise<WahaMessageResult
   }
 
   const data = await res.json() as { id?: string };
+  await logWahaSendDev('sendFile', p.chatId, data);
   return { id: data.id ?? '' };
 }
 
@@ -121,6 +122,16 @@ export async function resolvePhoneToLid(phone: string): Promise<string | null> {
   return typeof lid === 'string' ? lid : null;
 }
 
+/** Development-only: log an outbound WAHA send with the chatId (`…@c.us`), the resolved
+ *  `…@lid`, and the WAHA API response — to correlate WhatsApp identities while debugging.
+ *  No-op unless NODE_ENV=development; the LID lookup is best-effort (never throws). */
+async function logWahaSendDev(kind: string, chatId: string, response: unknown): Promise<void> {
+  if (process.env.NODE_ENV !== 'development') return;
+  let lid: string | null = null;
+  try { lid = await resolvePhoneToLid(chatId); } catch { /* best-effort */ }
+  console.log(`[waha-send] ${kind} chatId=${chatId} lid=${lid ?? '-'} response=${JSON.stringify(response)}`);
+}
+
 // ── Humanized send sequence (anti-spam, §12.2.1) ────────────────────────────
 
 async function wahaPost(path: string, body: unknown): Promise<Response> {
@@ -170,5 +181,6 @@ export async function sendTextHumanized(p: {
     throw new Error(`WAHA sendText error (${res.status}): ${errText}`);
   }
   const data = await res.json() as { id?: string };
+  await logWahaSendDev('sendText', p.chatId, data);
   return { id: data.id ?? '' };
 }

@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.11.3 |
+| PRD version in sync with | 0.11.4 |
 | Last updated | 2026-06-08 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages built (green) — pending VPS deploy + migration** |
 | Repo working state | green (build passes, tsc clean) |
@@ -162,6 +162,10 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-08 — **Dev-only WAHA send logging (PRD 0.11.4 §12.2.1).** `lib/waha.ts` `logWahaSendDev`
+  (gated on `NODE_ENV==='development'`) logs `[waha-send] <kind> chatId=…@c.us lid=…@lid response=<json>`
+  from `sendFile`/`sendText`; LID resolved best-effort via `resolvePhoneToLid`. No-op in prod/tests.
+  Code-only. 152 tests + tsc + build green.
 - 2026-06-08 — **Auto-acknowledge proof videos on receipt (PRD 0.11.3 §21.6).** New editable
   `proof_received` template ("Menerima bukti video", placed before `day1` in the config templates +
   TEMPLATE_LABELS; merged into existing challenges via the GET defaults-merge). Inbound webhook sends it

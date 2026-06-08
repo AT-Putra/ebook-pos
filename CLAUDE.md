@@ -40,6 +40,11 @@ done, idempotent, and recoverable.
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit; APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
 - `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`; templates card has a **test-send**: per-template "Kirim tes" → `POST /api/admin/whatsapp/test`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`, `/whatsapp/test`. `lib/challenge.ts` = pure day/phase/%loss/status logic + `computeDueReminders` (D12). **D12 automation:** Midtrans PAID auto-creates a participant (`AWAITING_INITIAL`); cron `/api/cron/challenge-reminders` (hourly, `isCron`) sends the reminder schedule once each (idempotent via `ChallengeReminderLog`) + auto-eliminates; `final_received` sent on verify-final. Rules: `docs/challenge-rules.md`.
+- `landing-pages/` (D13, §22) — 3 standalone marketing pages (`lp1/2/3.html`) hosted on OTHER domains.
+  Each POSTs a real order to `{CHECKOUT_API_BASE}/api/checkout` (`submitCheckout`) then redirects to the
+  Midtrans `redirectUrl` — reuses the existing checkout contract (no app/schema change). Operator sets
+  two constants (`CHECKOUT_API_BASE`, `PRODUCT_SLUG`) + **adds each hosted origin to the CORS allowlist**
+  (Pengaturan, invariant #10). Email is required on these pages. Setup: `landing-pages/README.md`.
 - `prisma/schema.prisma`, `prisma/seed.mjs`, `prisma.config.js`
 
 ## NON-NEGOTIABLE INVARIANTS (do not violate)

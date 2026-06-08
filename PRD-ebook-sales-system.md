@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.10.0 |
-| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) built (green) — pending VPS deploy + migration** |
+| Version | 0.11.0 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.11.0** (2026-06-08) — **External landing pages wired to checkout (slice D13) — BUILT.** The three standalone marketing pages in `landing-pages/` (`lp1/2/3.html`, hosted on other domains) now POST a real order to `{CHECKOUT_API_BASE}/api/checkout` (`{ productSlug, name, email, whatsapp, trackingId }`) and redirect the buyer to the returned Midtrans `redirectUrl` — replacing the old `wa.me` redirect. Each page has two operator-set constants (`CHECKOUT_API_BASE`, `PRODUCT_SLUG`); email is now **required** (the `Customer` row + Midtrans need it); `?ref`/`?utm_source`/`?fbclid` → `trackingId`. Each hosted origin must be added to the CORS allowlist (Pengaturan, invariant #10). No app/schema change — reuses the existing checkout contract. Setup: `landing-pages/README.md`. §22.
 - **0.10.0** (2026-06-06) — **Challenge WhatsApp automation (slice D12) — BUILT.** Auto-creates a participant on **PAID** for a challenge-active program (`AWAITING_INITIAL` = "Menunggu Bukti Awal"); a new cron `GET /api/cron/challenge-reminders` (CRON_SECRET, hourly) sends the rules' reminder schedule via `sendTextHumanized` (each once, idempotent via new `ChallengeReminderLog`) and auto-eliminates at H+15 (no initial proof) / day-105 (no final proof). `final_received` confirmation is sent by the verify-final action. New enum value `AWAITING_INITIAL` + `ChallengeReminderLog` table; `lib/challenge.ts` gains pure `computeDueReminders`/`renderTemplate`. Dashboard Active KPIs remain stubbed (out of scope). §21.8.
 - **0.9.1** (2026-06-06) — **Challenge config: test-send for WA templates.** The Challenge Configuration "Kontak & Template WhatsApp" card gains a **test recipient number** field and a **"Kirim tes"** button under each template textarea — it substitutes `{{contact}}` and sends that message via the humanized sequence (§12.2.1) so the operator can preview reminders before the D12 automation. New endpoint `POST /api/admin/whatsapp/test` (`{ whatsapp, text }`, `requireAdmin`). §21.5.
 - **0.9.0** (2026-06-06) — **Challenge module (slice D11) — BUILT (green: 141 tests, tsc, build; pending VPS deploy + migration).** The previously-deferred reward challenge (§15) is now built. Two new admin menus: **Challenge Configuration** (`/admin/challenge`) — pick a program, edit its challenge config (timeline, video rules, rewards/winner tiers, WA templates + contact — all editable, seeded from the rules) — and **User/Active** (`/admin/active`) — the list + status of participants. Proof videos (initial/final weigh-in) are **auto-captured via a WAHA inbound webhook** (`/api/webhooks/waha`) into private storage; the admin verifies each video and enters the weight. New schema: `Challenge` (1:1 with a `Product`), `ChallengeParticipant`, `ChallengeSubmission`, `ParticipantStatus` enum. **Scope of D11 = the 2 menus + inbound capture only**; the outbound WhatsApp reminder automation and automatic phase/elimination cron are a **later slice (D12)**. Rules source of truth: `docs/challenge-rules.md`. Full spec: new **§21**. WAHA inbound contract confirmed from the provider docs (event `message`; media via `media.url` downloaded with `X-Api-Key`; HMAC-SHA512 `X-Webhook-Hmac` auth; dedupe on `payload.id`) — §21.6, open question #14 resolved. Added **§12.2.1 humanized send sequence** (sendSeen → startTyping → wait → stopTyping → sendText) as a required anti-spam standard for all conversational/reminder sends.
@@ -1587,3 +1588,38 @@ stubbed; and any winner-announcement automation.
 3. Weights are **entered by the admin** from the verified video (the video shows the scale).
 4. `CHALLENGE_MEDIA_DIR` is a new private volume (separate from `EBOOK_FILES_DIR`).
 5. Dashboard `Active` KPIs stay **stubbed** in D11 (wired in D12).
+
+## 22. External Landing Pages (slice D13) `[DRAFT]`
+
+Three standalone marketing pages live in `landing-pages/` (`lp1.html`, `lp2.html`, `lp3.html`) and are
+hosted on **other domains** (CDN / static host), outside this Next.js app. They drive paid orders into
+the same checkout pipeline as the built-in `/[slug]` page — there is **no separate checkout backend**.
+
+### 22.1 Flow
+Form (name, WhatsApp, **email — required**) → `POST {CHECKOUT_API_BASE}/api/checkout` with
+`{ productSlug, name, email, whatsapp, trackingId }` → app creates the PENDING order + Midtrans Snap →
+returns `{ orderCode, snapToken, redirectUrl }` → page does `window.location.href = redirectUrl`. On
+confirmed payment the existing webhook + delivery path sends the e-book (and challenge auto-create on
+PAID still applies). The pages no longer use the old `wa.me` redirect.
+
+### 22.2 Per-page configuration (operator)
+Two constants at the top of each page's inline `<script>`:
+- `CHECKOUT_API_BASE` — the app's public origin (`APP_BASE_URL`), no trailing slash.
+- `PRODUCT_SLUG` — an active, on-sale product slug from admin → Program.
+
+### 22.3 Cross-origin requirement
+Each hosted page origin **must** be added to the CORS allowlist (Pengaturan → Origin yang diizinkan,
+invariant #10 — never `*`). A missing origin = browser blocks the request, order never created.
+
+### 22.4 Behaviour / error handling (client)
+- `422` → shows joined field validation messages (e.g. invalid Indonesian WA number).
+- `403` → sales window closed/not started ("Penjualan ditutup").
+- `429` → rate-limited, try-again message.
+- network/`5xx` → generic retry message. The submit button shows "Memproses..." and is disabled in flight.
+- `?ref` / `?utm_source` / `?fbclid` query param → sent as `trackingId`, stored on the order.
+
+### 22.5 Notes / invariants
+- Email is **mandatory** on these pages because `Customer` (`@@unique([email, whatsapp])`) and Midtrans
+  require it; do not revert to "opsional".
+- Static assets only — not built or served by the app; reuse the existing `/api/checkout` contract, so
+  no schema or server change was needed. Setup steps: `landing-pages/README.md`.

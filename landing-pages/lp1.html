@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diet 90 Hari - 10KG Challenge</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *{font-family:Inter,sans-serif;box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#eaf8df;color:#17200e}.page{max-width:430px;margin:auto;background:#f4fbec;min-height:100vh;padding-bottom:0}.card{background:#fff;border:1px solid #dcf5c7;border-radius:28px;box-shadow:0 18px 45px rgba(58,91,20,.12)}.hero{background:radial-gradient(circle at 15% 0%,rgba(132,204,22,.35),transparent 35%),linear-gradient(180deg,#e2f5d3,#f6fbef)}.cta{background:#a3e635;color:#064e3b;box-shadow:0 14px 30px rgba(132,204,22,.38);animation:ctaPulse 1.8s ease-in-out infinite;position:relative;overflow:hidden}.cta:after{content:'';position:absolute;top:0;left:-80%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);transform:skewX(-18deg);animation:ctaShine 2.4s infinite}@keyframes ctaPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}@keyframes ctaShine{0%{left:-80%}55%,100%{left:130%}}details summary::-webkit-details-marker{display:none}.gift-phone{width:98px;height:auto;object-fit:contain;filter:drop-shadow(0 18px 22px rgba(0,0,0,.32));animation:phoneFloat 3.2s ease-in-out infinite}.gift-phone-sm{width:92px;height:auto;object-fit:contain;filter:drop-shadow(0 16px 18px rgba(0,0,0,.22));animation:phoneFloat 3.2s ease-in-out infinite}@keyframes phoneFloat{0%,100%{transform:translateY(0) rotate(-4deg) scale(1)}50%{transform:translateY(-8px) rotate(3deg) scale(1.04)}}
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <section class="hero px-5 pt-6 pb-8">
+    <div class="flex justify-between items-center mb-5"><div class="flex gap-3 items-center"><div class="w-11 h-11 rounded-2xl bg-emerald-700 text-white grid place-items-center font-black">90</div><div><b>Diet 90 Hari</b><p class="text-xs font-bold text-emerald-700">10KG Challenge</p></div></div><a href="#harga" class="bg-lime-200 text-emerald-800 text-xs font-black rounded-full px-4 py-2">Ikut Challenge</a></div>
+    <div class="card p-5 mb-5">
+      <span class="inline-block bg-lime-100 text-emerald-700 text-xs font-black rounded-full px-3 py-2 mb-4">Challenge turun hingga 10kg</span>
+      <h1 class="text-[34px] leading-tight font-black tracking-[-1px] mb-4">Turun 10kg Dalam 90 Hari</h1>
+      <p class="text-[14.5px] leading-7 text-slate-600 font-semibold mb-4">Ikuti panduan harian, tracking progres, menu diet hemat, olahraga mudah, dan challenge 90 hari berhadiah.</p>
+      <div class="grid grid-cols-3 gap-2 mb-4">
+        <div class="bg-emerald-700 text-white rounded-2xl p-3 text-center"><b>-10kg</b><p class="text-[10px]">Target</p></div>
+        <div class="bg-lime-50 rounded-2xl p-3 text-center"><b class="text-emerald-700">90</b><p class="text-[10px]">Hari</p></div>
+        <div class="bg-lime-50 rounded-2xl p-3 text-center"><b class="text-emerald-700">10K+</b><p class="text-[10px]">Peserta</p></div>
+      </div>
+      <div class="bg-lime-50 rounded-3xl p-4 mb-4 border border-lime-100">
+        <b class="text-xs text-emerald-700 uppercase">Menu Diet Hemat</b><p class="text-sm leading-6 text-slate-600 mt-1 mb-3">Tidak perlu makanan mahal. Bahan mudah dicari dan cocok untuk makan sehari-hari.</p>
+        <div class="grid grid-cols-4 gap-2 text-center text-[10px] font-bold text-slate-500"><div>🥚<br>Telur</div><div>🍗<br>Ayam</div><div>🫘<br>Tempe</div><div>🥬<br>Sayur</div><div>🍌<br>Buah</div><div>🍚<br>Nasi</div><div>🥔<br>Kentang</div><div>🥛<br>Protein</div></div>
+      </div>
+      <div class="bg-emerald-950 text-white rounded-3xl p-4 flex justify-between items-center overflow-hidden"><div><p class="text-[10px] font-black text-lime-200 uppercase">Reward Challenge</p><h3 class="text-2xl font-black leading-tight">iPhone 17 Pro Max</h3><p class="text-sm font-bold text-lime-100 mt-2">+ Saldo E-Wallet Rp500rb</p></div><img src="https://demirumah.com/iphone_17_pro_max_800x800.png" alt="iPhone 17 Pro Max" class="gift-phone" /></div>
+    </div>
+    <a href="#harga" class="block text-center cta font-black rounded-2xl py-4 text-lg">Mulai Challenge Rp75.000</a>
+    <p class="text-center text-xs font-bold text-slate-500 mt-3">Harga normal Rp150.000 • Promo hemat 50%</p>
+  </section>
+
+  <section class="px-5 py-6"><div class="card p-5"><p class="text-xs font-black text-emerald-700 uppercase">Sudah dipercaya</p><h2 class="text-4xl font-black text-emerald-800 my-2"><span id="counterPeserta" data-target="10000">0</span>+ <span class="text-sm text-slate-500">orang</span></h2><p class="text-sm leading-6 text-slate-600 font-semibold">Telah diikuti peserta yang ingin hidup lebih sehat, konsisten, dan mengikuti challenge target turun hingga 10kg.</p></div></section>
+
+  <section class="px-5 pb-6"><div class="card p-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">Masalah</p><h2 class="text-2xl font-black mb-4">Diet Sering Gagal Karena Jalannya Tidak Jelas</h2><div class="space-y-3 text-sm text-slate-600 font-semibold leading-6"><p>❌ Bingung lanjut hari berikutnya.</p><p>❌ Terlalu ketat lalu cepat menyerah.</p><p>❌ Tidak punya checklist dan tracking.</p><p>❌ Kurang motivasi sampai akhir.</p></div></div></section>
+
+  <section class="px-5 pb-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">Untuk Siapa?</p><h2 class="text-2xl font-black mb-4">Cocok Untuk Kamu yang...</h2><div class="grid gap-3"> 
+    <div class="card p-4 flex gap-3"><span>🙋‍♀️</span><p class="text-sm font-semibold text-slate-600"><b class="text-slate-900">Bingung mulai diet</b><br>Butuh panduan harian yang jelas.</p></div>
+    <div class="card p-4 flex gap-3"><span>🍽️</span><p class="text-sm font-semibold text-slate-600"><b class="text-slate-900">Mau diet tetap hemat</b><br>Tidak perlu katering atau menu mahal.</p></div>
+    <div class="card p-4 flex gap-3"><span>🏠</span><p class="text-sm font-semibold text-slate-600"><b class="text-slate-900">Ingin olahraga dari rumah</b><br>Beban ringan dan aerobik sederhana.</p></div>
+    <div class="card p-4 flex gap-3"><span>🎯</span><p class="text-sm font-semibold text-slate-600"><b class="text-slate-900">Butuh target</b><br>Challenge 90 hari agar lebih konsisten.</p></div>
+  </div></section>
+
+  <section class="px-5 pb-6"><div class="bg-emerald-700 text-white rounded-[28px] p-6 shadow-soft"><p class="text-xs font-black text-lime-100 uppercase mb-2">Solusinya</p><h2 class="text-2xl font-black mb-3">Program Diet 90 Hari</h2><p class="text-sm leading-7 text-lime-50 font-semibold mb-4">Ebook panduan harian untuk mengejar target challenge turun hingga 10kg. Menunya sederhana, hemat, dan mudah didapat.</p><div class="grid grid-cols-2 gap-3 text-sm font-bold"><div class="bg-white/15 rounded-2xl p-3">-10kg<br><span class="text-xs">Target Challenge</span></div><div class="bg-white/15 rounded-2xl p-3">✓<br><span class="text-xs">Checklist</span></div><div class="bg-white/15 rounded-2xl p-3">📈<br><span class="text-xs">Tracking</span></div><div class="bg-white/15 rounded-2xl p-3">🏃‍♀️<br><span class="text-xs">Olahraga mudah</span></div></div></div></section>
+
+  <section class="px-5 pb-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">Isi Ebook</p><h2 class="text-2xl font-black mb-4">Yang Kamu Dapatkan</h2><div class="space-y-3">
+    <div class="card p-4 flex gap-3"><span>🥗</span><p class="text-sm text-slate-600 font-semibold"><b>Panduan pola makan sehat</b><br>Menu tidak mahal dan mudah ditemukan.</p></div>
+    <div class="card p-4 flex gap-3"><span>🛒</span><p class="text-sm text-slate-600 font-semibold"><b>Menu diet mudah didapat</b><br>Cocok untuk warung, pasar, dan minimarket.</p></div>
+    <div class="card p-4 flex gap-3"><span>📋</span><p class="text-sm text-slate-600 font-semibold"><b>Checklist 90 hari</b><br>Tahu apa yang perlu dilakukan setiap hari.</p></div>
+    <div class="card p-4 flex gap-3"><span>🏋️</span><p class="text-sm text-slate-600 font-semibold"><b>Beban ringan & aerobik mudah</b><br>Gerakan sederhana dari rumah.</p></div>
+  </div></section>
+
+  <section class="px-5 pb-6"><div class="bg-emerald-950 text-white rounded-[28px] p-6"><p class="text-xs font-black text-lime-200 uppercase mb-2">Bonus Challenge</p><h2 class="text-2xl font-black mb-3">Challenge Turun 10kg Dalam 90 Hari</h2><p class="text-sm leading-7 text-slate-300 font-semibold mb-4">Beli ebook, rekam video awal, ikuti program 90 hari, kirim video akhir, dan berkesempatan mendapatkan reward.</p><div class="space-y-3 text-sm font-semibold text-slate-200"><p>1. Beli ebook Program Diet 90 Hari</p><p>2. Video awal 30 detik: wajah + timbangan</p><p>3. Ikuti panduan 90 hari</p><p>4. Video akhir 30 detik: wajah + timbangan</p></div></div></section>
+
+  <section class="px-5 pb-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">Cara Mulai</p><h2 class="text-2xl font-black mb-4">Mulai Dalam 6 Langkah</h2><div class="card p-5 space-y-3 text-sm font-semibold text-slate-600 leading-6"><p>1. Isi nama, WhatsApp, dan email opsional.</p><p>2. Klik <b>Beli E-book Sekarang</b>.</p><p>3. Bayar melalui Midtrans.</p><p>4. Ebook dikirim ke WhatsApp.</p><p>5. Ikuti panduan 90 hari.</p><p class="bg-lime-50 rounded-2xl p-3 text-emerald-900 font-black">6. Kirim video akhir, buktikan progresmu, dan dapetin hadiah challengenya.</p></div></section>
+
+  <section class="px-5 pb-6"><div class="bg-gradient-to-br from-lime-200 to-emerald-100 rounded-[28px] p-6 shadow-soft"><p class="text-xs font-black text-lime-800 uppercase mb-2">Hadiah Challenge</p><h2 class="text-3xl font-black mb-4">Reward Untuk Peserta Terbaik</h2><div class="bg-white/80 rounded-3xl p-4 flex items-center justify-between mb-3"><div><p class="text-sm font-bold text-slate-500">Hadiah Utama</p><p class="text-2xl font-black">iPhone 17 Pro Max</p></div><img src="https://demirumah.com/iphone_17_pro_max_800x800.png" alt="iPhone 17 Pro Max" class="gift-phone-sm" /></div><div class="bg-white/80 rounded-3xl p-4"><p class="text-sm font-bold text-slate-500">Hadiah Hiburan</p><p class="text-2xl font-black">Saldo E-Wallet Rp500.000</p><p class="text-sm font-black text-lime-800">Untuk 10 orang pemenang</p></div></div></section>
+
+  <section class="px-5 pb-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">Penilaian Pemenang</p><h2 class="text-2xl font-black mb-4">Dinilai dari Persentase Turun Berat Badan</h2><div class="card p-5"><p class="text-sm leading-7 text-slate-600 font-semibold mb-4">Agar adil, penilaian utama dihitung berdasarkan persentase penurunan berat badan.</p><div class="bg-emerald-700 text-white rounded-3xl p-4 mb-3"><b>Rumus:</b><br>berat turun ÷ berat awal × 100%</div><div class="bg-lime-50 rounded-2xl p-4 mb-2 text-sm"><b>Peserta A:</b> 80kg ke 70kg = 10 ÷ 80 × 100% = 12,5%</div><div class="bg-lime-50 rounded-2xl p-4 text-sm"><b>Peserta B:</b> 60kg ke 52kg = 8 ÷ 60 × 100% = 13,3%</div><p class="text-sm leading-6 text-slate-600 font-semibold mt-3">Peserta B lebih tinggi persentasenya meskipun kilogram turun lebih kecil.</p></div></section>
+
+  <section class="px-5 pb-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">Testimonial</p><h2 class="text-2xl font-black mb-4">Cerita Mereka yang Mulai Lebih Konsisten</h2><div class="space-y-3">
+    <div class="card p-4"><div class="flex gap-3 mb-3"><img class="w-12 h-12 rounded-full object-cover" src="https://images.pexels.com/photos/6281952/pexels-photo-6281952.jpeg?auto=compress&cs=tinysrgb&w=160&h=160&fit=crop"><div><b>Anisa, 29 tahun</b><p class="text-xs text-slate-400 font-bold">Peserta 90 Hari</p></div></div><p class="text-sm leading-6 text-slate-600 font-semibold">“Checklist hariannya membantu saya tidak bingung dan bisa lihat progres dari minggu ke minggu.”</p></div>
+    <div class="card p-4"><div class="flex gap-3 mb-3"><img class="w-12 h-12 rounded-full object-cover" src="https://images.pexels.com/photos/3756679/pexels-photo-3756679.jpeg?auto=compress&cs=tinysrgb&w=160&h=160&fit=crop"><div><b>Rina, 34 tahun</b><p class="text-xs text-slate-400 font-bold">Wanita pekerja aktif</p></div></div><p class="text-sm leading-6 text-slate-600 font-semibold">“Biasanya semangat cuma sebentar. Dengan panduan 90 hari, rasanya lebih terarah.”</p></div>
+    <div class="card p-4"><div class="flex gap-3 mb-3"><img class="w-12 h-12 rounded-full object-cover" src="https://images.pexels.com/photos/3767426/pexels-photo-3767426.jpeg?auto=compress&cs=tinysrgb&w=160&h=160&fit=crop"><div><b>Dewi, 26 tahun</b><p class="text-xs text-slate-400 font-bold">Ikut challenge</p></div></div><p class="text-sm leading-6 text-slate-600 font-semibold">“Challenge-nya bikin lebih termotivasi untuk menyelesaikan program sampai hari ke-90.”</p></div>
+  </div><p class="text-[11px] text-slate-400 font-semibold mt-3">Testimonial merupakan ilustrasi desain. Ganti dengan testimoni asli setelah tersedia.</p></section>
+
+  <section id="harga" class="px-5 pb-6 scroll-mt-4"><div class="card p-6"><div class="text-center mb-5"><span class="bg-lime-100 text-emerald-700 text-xs font-black rounded-full px-4 py-2">PROMO HEMAT 50%</span><h2 class="text-3xl font-black mt-4">Mulai Program Sekarang</h2><p class="text-sm text-slate-600 leading-6 font-semibold">Sekali bayar. Pembayaran diproses melalui Midtrans.</p></div><div class="bg-slate-50 rounded-3xl p-5 text-center mb-5"><p class="text-slate-500 font-bold">Harga Normal</p><p class="text-2xl font-black text-slate-400 line-through">Rp150.000</p><p class="text-sm font-black text-emerald-700 mt-2">Harga Diskon Hari Ini</p><p class="text-5xl font-black">Rp75.000</p></div><div class="space-y-2 mb-5 text-sm font-semibold text-slate-700"><p>✅ Ebook Program Diet 90 Hari</p><p>✅ Panduan harian dan checklist</p><p>✅ Menu diet hemat dan mudah didapat</p><p>✅ Olahraga beban ringan & aerobik sederhana</p><p>✅ Akses mengikuti challenge</p><p>✅ Kesempatan menang iPhone dan saldo e-wallet</p></div><div class="bg-lime-50 rounded-3xl p-5 border border-lime-100 mb-5"><p class="text-xs font-black text-emerald-700 uppercase">Data Pengiriman Ebook</p><h3 class="text-xl font-black mb-3">Isi Data Kamu</h3><form class="space-y-3" onsubmit="submitCheckout(event)"><input id="nama" required placeholder="Nama lengkap" class="w-full rounded-2xl border border-lime-200 px-4 py-4 text-sm font-semibold"><input id="wa" required placeholder="Nomor WhatsApp" class="w-full rounded-2xl border border-lime-200 px-4 py-4 text-sm font-semibold"><p class="text-[11px] text-slate-500 font-semibold -mt-1">Contoh: 081122223333</p><input id="email" type="email" required placeholder="Alamat email" class="w-full rounded-2xl border border-lime-200 px-4 py-4 text-sm font-semibold"><button class="w-full cta font-black rounded-2xl py-4 text-lg">Beli E-book Sekarang</button></form><p class="text-center text-[11px] text-slate-500 font-semibold mt-2">Setelah klik tombol, kamu akan diarahkan untuk melanjutkan pembayaran.</p></div><div class="bg-white rounded-3xl p-5 border border-lime-100"><div class="flex justify-between items-center mb-3"><div><p class="text-xs font-black text-emerald-700 uppercase">Pembayaran Aman</p><b>Didukung Midtrans</b></div><span class="bg-emerald-700 text-white rounded-2xl px-3 py-2 text-xs font-black">MIDTRANS</span></div><div class="grid grid-cols-3 gap-2">
+  <div class="bg-lime-50 border border-lime-100 rounded-2xl p-2 flex items-center justify-center h-16"><img src="https://demirumah.com/gopay_200x200.png" alt="GoPay" class="max-h-10 max-w-full object-contain"></div>
+  <div class="bg-lime-50 border border-lime-100 rounded-2xl p-2 flex items-center justify-center h-16"><img src="https://demirumah.com/dana_200x200.png" alt="DANA" class="max-h-10 max-w-full object-contain"></div>
+  <div class="bg-lime-50 border border-lime-100 rounded-2xl p-2 flex items-center justify-center h-16"><img src="https://demirumah.com/ovo_200x200.png" alt="OVO" class="max-h-10 max-w-full object-contain"></div>
+  <div class="bg-lime-50 border border-lime-100 rounded-2xl p-2 flex items-center justify-center h-16"><img src="https://demirumah.com/qris_200x200.png" alt="QRIS" class="max-h-10 max-w-full object-contain"></div>
+  <div class="bg-lime-50 border border-lime-100 rounded-2xl p-2 flex items-center justify-center h-16"><img src="https://demirumah.com/shopeepay_200x200.png" alt="ShopeePay" class="max-h-10 max-w-full object-contain"></div>
+  <div class="bg-lime-50 border border-lime-100 rounded-2xl p-2 flex items-center justify-center h-16"><img src="https://demirumah.com/virtual_account_200x200.png" alt="Virtual Account" class="max-h-10 max-w-full object-contain"></div>
+</div></div></div></section>
+
+  <section class="px-5 pb-6"><p class="text-xs font-black text-emerald-700 uppercase mb-2">FAQ</p><h2 class="text-2xl font-black mb-4">Pertanyaan Sebelum Mulai</h2><div class="space-y-3">
+    <details class="card p-4"><summary class="font-black flex justify-between">Apakah cocok untuk pemula? <span>+</span></summary><p class="text-sm text-slate-600 leading-6 mt-3">Ya. Program dibuat bertahap selama 90 hari.</p></details>
+    <details class="card p-4"><summary class="font-black flex justify-between">Apakah menu dietnya mahal? <span>+</span></summary><p class="text-sm text-slate-600 leading-6 mt-3">Tidak. Menu memakai bahan umum seperti telur, ayam, tempe, tahu, sayur, buah, nasi, dan kentang.</p></details>
+    <details class="card p-4"><summary class="font-black flex justify-between">Apakah harus olahraga berat? <span>+</span></summary><p class="text-sm text-slate-600 leading-6 mt-3">Tidak. Olahraga menggunakan beban ringan, berat badan sendiri, dan aerobik mudah.</p></details>
+    <details class="card p-4"><summary class="font-black flex justify-between">Apakah target 10kg dijamin? <span>+</span></summary><p class="text-sm text-slate-600 leading-6 mt-3">Tidak. Turun 10kg adalah target challenge, bukan jaminan hasil pasti.</p></details>
+    <details class="card p-4"><summary class="font-black flex justify-between">Kapan ebook dikirim? <span>+</span></summary><p class="text-sm text-slate-600 leading-6 mt-3">Ebook dikirim melalui WhatsApp setelah pembayaran berhasil.</p></details>
+    <details class="card p-4"><summary class="font-black flex justify-between">Kalau ebook belum masuk? <span>+</span></summary><p class="text-sm text-slate-600 leading-6 mt-3">Hubungi admin dengan nama dan nomor WhatsApp pembelian agar link dibantu kirim ulang.</p></details>
+  </div></section>
+
+  <footer class="px-5 pb-24"><div class="bg-emerald-950 text-white rounded-[32px] p-6 shadow-soft"><div class="w-12 h-12 rounded-2xl bg-lime-400 text-emerald-950 grid place-items-center font-black mb-4">90</div><p class="text-xs font-black text-lime-200 uppercase">Siap mulai?</p><h2 class="text-3xl font-black leading-tight mt-2 mb-3">Mulai Challenge Diet 90 Hari Sekarang</h2><p class="text-sm leading-7 text-lime-50/90 font-semibold mb-5">Dapatkan panduan diet hemat, olahraga mudah, tracking progres, dan kesempatan mengikuti challenge berhadiah.</p><a href="#harga" class="block text-center cta font-black rounded-2xl py-4 mb-4">Beli E-book Sekarang</a><p class="text-[11px] leading-5 text-lime-50/80 font-medium bg-white/10 rounded-2xl p-4">Disclaimer: Program ini bersifat panduan gaya hidup umum dan bukan pengganti nasihat medis. Target turun 10kg dalam 90 hari adalah target challenge, bukan jaminan hasil. Hasil setiap orang dapat berbeda.</p><div class="text-center border-t border-white/10 pt-4 mt-4"><p class="text-sm font-black">Diet 90 Hari</p><p class="text-[11px] text-lime-100/70 font-semibold">Panduan digital • Challenge • Reward</p><p class="text-[11px] text-lime-100/60 font-semibold mt-3">© 2026 Diet 90 Hari. All Rights Reserved.</p></div></div></footer>
+
+  <div class="fixed bottom-0 left-0 right-0 z-[9999] px-4 pt-3 pb-3 bg-white/95 backdrop-blur-xl border-t border-lime-100"><div class="max-w-md mx-auto"><a href="#harga" class="block text-center cta font-black rounded-2xl py-4">Mulai Challenge Rp75.000</a></div></div>
+</div>
+<script>
+function animateCounter(){const el=document.getElementById('counterPeserta');if(!el)return;const target=parseInt(el.dataset.target,10);let start=0;const duration=1400;const stepTime=20;const step=Math.ceil(target/(duration/stepTime));const timer=setInterval(()=>{start+=step;if(start>=target){start=target;clearInterval(timer)}el.textContent=start.toLocaleString('id-ID')},stepTime)}
+document.addEventListener('DOMContentLoaded',animateCounter);
+// ===== Checkout configuration — set these two values once =====
+const CHECKOUT_API_BASE='https://your-app-domain.com'; // origin of the e-book app that serves /api/checkout (no trailing slash)
+const PRODUCT_SLUG='lose-weight-challenge-1st-edition'; // product slug from admin -> Program
+// =============================================================
+function getTrackingId(){const p=new URLSearchParams(location.search);return p.get('ref')||p.get('utm_source')||p.get('fbclid')||undefined}
+async function submitCheckout(e){
+  e.preventDefault();
+  const form=e.currentTarget,btn=form.querySelector('button');
+  const name=(document.getElementById('nama').value||'').trim();
+  const whatsapp=(document.getElementById('wa').value||'').trim();
+  const email=(document.getElementById('email').value||'').trim();
+  if(!name||!whatsapp||!email){alert('Mohon lengkapi nama, nomor WhatsApp, dan email.');return}
+  const original=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.innerHTML='Memproses...'}
+  try{
+    const res=await fetch(CHECKOUT_API_BASE+'/api/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({productSlug:PRODUCT_SLUG,name,email,whatsapp,trackingId:getTrackingId()})});
+    const data=await res.json().catch(()=>({}));
+    if(res.status===422){alert(data.fields?Object.values(data.fields).flat().join('\n'):(data.error||'Data tidak valid.'));return}
+    if(!res.ok){alert(data.error||'Gagal memproses pesanan. Silakan coba lagi sebentar lagi.');return}
+    if(data.redirectUrl){window.location.href=data.redirectUrl;return}
+    alert('Pesanan dibuat, tetapi tautan pembayaran tidak tersedia. Silakan hubungi admin.');
+  }catch(err){
+    alert('Gagal terhubung ke server pembayaran. Periksa koneksi internet lalu coba lagi.');
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML=original}
+  }
+}
+</script>
+</body>
+</html>

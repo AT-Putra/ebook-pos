@@ -6,9 +6,9 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.10.0 |
-| Last updated | 2026-06-06 |
-| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation built (green) — pending VPS deploy + migration** |
+| PRD version in sync with | 0.11.0 |
+| Last updated | 2026-06-08 |
+| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages built (green) — pending VPS deploy + migration** |
 | Repo working state | green (build passes, tsc clean) |
 
 ## How to run
@@ -162,6 +162,15 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-08 — **D13 external landing pages wired to checkout (PRD 0.11.0 §22).** The 3 standalone
+  pages in `landing-pages/` (`lp1/2/3.html`, hosted on other domains) now POST a real order to
+  `{CHECKOUT_API_BASE}/api/checkout` and redirect to the Midtrans `redirectUrl` (was: `wa.me`).
+  Replaced each `sendToWhatsApp` with `submitCheckout` (fetch + button loading state + 422/403/429/5xx
+  alerts + `?ref`/`utm`/`fbclid`→trackingId); added two operator constants (`CHECKOUT_API_BASE`,
+  `PRODUCT_SLUG='lose-weight-challenge-1st-edition'`); **email made required** (Customer/Midtrans need
+  it). No app/schema change — reuses the existing checkout contract. Added `landing-pages/README.md`
+  (config + CORS allowlist steps). **Operator must add each hosted origin to the CORS allowlist
+  (Pengaturan).** Static files, no build step.
 - 2026-06-06 — D12 anti-spam pacing: the reminder worker is strictly sequential and now adds a
   randomized **3–7s gap between every message** (`MIN_GAP_MS`/`MAX_GAP_MS` in `lib/challenge-reminders.ts`)
   on top of `sendTextHumanized`'s typing delay — so a single WA number never bursts (≈1 msg / 8–13s even

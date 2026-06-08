@@ -26,6 +26,11 @@ describe('defaultChallengeConfig', () => {
   it('includes the WA templates keyed by trigger', () => {
     expect(Object.keys(cfg.messageTemplates)).toEqual(expect.arrayContaining(['after_purchase', 'day1', 'day90', 'final_received']));
   });
+  it('has a proof_received acknowledgement template ordered right before day1', () => {
+    const keys = Object.keys(cfg.messageTemplates);
+    expect(cfg.messageTemplates.proof_received).toBeTruthy();
+    expect(keys.indexOf('proof_received')).toBe(keys.indexOf('day1') - 1);
+  });
 });
 
 describe('dayOfChallenge (WIB calendar days, 1-based)', () => {

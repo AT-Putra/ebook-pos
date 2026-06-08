@@ -8,7 +8,7 @@ type ProgramOption = { id: string; label: string };
 
 const TEMPLATE_LABELS: Record<string, string> = {
   after_purchase: 'Setelah pembelian', h7: 'H+7 (belum mulai)', h13: 'H+13', h14: 'H+14',
-  h15: 'H+15 (gugur awal)', day1: 'Hari 1 (mulai)', day30: 'Hari 30', day60: 'Hari 60',
+  h15: 'H+15 (gugur awal)', proof_received: 'Menerima bukti video', day1: 'Hari 1 (mulai)', day30: 'Hari 30', day60: 'Hari 60',
   day90: 'Hari 90 (bukti akhir)', day97: 'Hari 97', day103: 'Hari 103', day104: 'Hari 104',
   day105: 'Hari 105 (gugur akhir)', final_received: 'Bukti akhir diterima',
 };

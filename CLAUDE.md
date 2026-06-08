@@ -85,8 +85,10 @@ done, idempotent, and recoverable.
     store under `CHALLENGE_MEDIA_DIR` (invariant #4). **Sender id may be a privacy `…@lid` (not a phone
     number)** — `lib/waha.ts` `parseJid`/`resolveLidToPhone`/`resolvePhoneToLid` map it via WAHA's LIDs
     API so the inbound match still works (§21.6). %-loss formula `(awal−akhir)/awal×100` is FIXED.
-    D11 = config + User/Active + inbound capture ONLY (no auto-verify, no auto-reply); outbound WA
-    reminders + auto phase/elimination cron are deferred to D12. Challenge is additive: never touches the
+    The webhook **never auto-verifies** (admin reviews), but **does auto-acknowledge** a stored video via
+    the editable `proof_received` template ("Menerima bukti video", before `day1`) — humanized, idempotent
+    (`ChallengeReminderLog` key `proof_received:<msgId>`), skipped if blank/rejected (§21.6, 0.11.3).
+    Outbound WA reminders + auto phase/elimination cron are D12. Challenge is additive: never touches the
     buyer checkout/delivery flow.
 14. **Humanized WA sends (§12.2.1, anti-spam — ALWAYS)**: every conversational/reminder text send (D12
     reminders, any reply) MUST go through `lib/waha.ts` `sendTextHumanized`: `sendSeen` → `startTyping` →

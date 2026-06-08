@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.11.2 |
+| PRD version in sync with | 0.11.3 |
 | Last updated | 2026-06-08 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages built (green) — pending VPS deploy + migration** |
 | Repo working state | green (build passes, tsc clean) |
@@ -162,6 +162,12 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-08 — **Auto-acknowledge proof videos on receipt (PRD 0.11.3 §21.6).** New editable
+  `proof_received` template ("Menerima bukti video", placed before `day1` in the config templates +
+  TEMPLATE_LABELS; merged into existing challenges via the GET defaults-merge). Inbound webhook sends it
+  (humanized, idempotent key `proof_received:<msgId>`, fire-and-forget) when a video is actually stored —
+  initial OR final; skipped if blank or video rejected. Reuses `sendChallengeReminderOnce`. Webhook still
+  never auto-verifies. 152 tests + tsc + build green. **Code-only deploy (no migration).**
 - 2026-06-08 — **Inbound `@lid` proof-video capture (PRD 0.11.2 §21.6).** Prod symptom: buyer's proof
   video logged `[waha-inbox] ignored: not-direct` because WhatsApp sent the sender as `…@lid` (privacy
   id), not `…@c.us`. Added `parseJid` (pure, tested) + `resolveLidToPhone`/`resolvePhoneToLid` (WAHA LIDs

@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.11.2 |
+| Version | 0.11.3 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
@@ -14,6 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.11.3** (2026-06-08) — **Auto-acknowledge proof videos on receipt.** When the inbound webhook successfully stores a proof video (initial OR final), it now sends the buyer a confirmation via a new **editable `proof_received` template** ("Menerima bukti video" in the Challenge config "Kontak & Template WhatsApp" section, positioned right before "Hari 1 (mulai)"). Humanized send (§12.2.1), idempotent per message (`ChallengeReminderLog` key `proof_received:<msgId>`), fire-and-forget, only when the video was actually stored (not on oversize/download-fail), and skipped if the template is left blank. Seeded default text; merged into existing challenges via the GET defaults-merge. The webhook still **never auto-verifies** (admin reviews). §21.6.
 - **0.11.2** (2026-06-08) — **Inbound proof videos from WhatsApp `@lid` senders now captured.** WhatsApp increasingly sends inbound DMs with a privacy **`…@lid`** sender id instead of `…@c.us`; the inbound webhook was rejecting these as `not-direct`, so proof videos were dropped. Now `parseJid()` classifies the sender and LIDs are resolved to a phone number via WAHA's LIDs API (`resolveLidToPhone`; fallback matches candidate buyers via `resolvePhoneToLid`). Pure `parseJid` unit-tested. No schema/migration. §21.6.
 - **0.11.1** (2026-06-08) — **`after_purchase` challenge instructions now sent INSTANTLY on PAID.** Previously the "Setelah pembelian" message only went out on the next hourly `challenge-reminders` cron tick (up to ~1h delay). The Midtrans webhook now sends it immediately when it auto-creates the participant, via a new reusable `sendChallengeReminderOnce()` (extracted from the cron worker) — **idempotent through the same `ChallengeReminderLog`**, so the hourly cron never double-sends. Fire-and-forget (webhook still acks 200 fast); humanized send (§12.2.1). Other reminders (h7/day1/…) stay on the cron. §21.8.
 - **0.11.0** (2026-06-08) — **External landing pages wired to checkout (slice D13) — BUILT.** The three standalone marketing pages in `landing-pages/` (`lp1/2/3.html`, hosted on other domains) now POST a real order to `{CHECKOUT_API_BASE}/api/checkout` (`{ productSlug, name, email, whatsapp, trackingId }`) and redirect the buyer to the returned Midtrans `redirectUrl` — replacing the old `wa.me` redirect. Each page has two operator-set constants (`CHECKOUT_API_BASE`, `PRODUCT_SLUG`); email is now **required** (the `Customer` row + Midtrans need it); `?ref`/`?utm_source`/`?fbclid` → `trackingId`. Each hosted origin must be added to the CORS allowlist (Pengaturan, invariant #10). No app/schema change — reuses the existing checkout contract. Setup: `landing-pages/README.md`. §22.
@@ -1498,8 +1499,12 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
   started (`RUNNING`) → `kind="final"` (status → `PENDING_FINAL_REVIEW`). Upsert the participant by
   `orderId` (no create race) and create the `ChallengeSubmission` idempotently (P2002 on `wahaMessageId`
   → no-op `200`). Always ack `200` fast.
-- The webhook **never auto-verifies and never auto-replies** in D11; an admin always reviews (the rules
-  require human judgment). Any future auto-reply must use the humanized send sequence (§12.2).
+- The webhook **never auto-verifies** — an admin always reviews (the rules require human judgment). It
+  **does** auto-acknowledge receipt (added 0.11.3): after a video is stored it sends the editable
+  `proof_received` template ("Menerima bukti video", before "Hari 1 (mulai)") via the humanized sequence
+  (§12.2.1), idempotent per message (`ChallengeReminderLog` key `proof_received:<msgId>`), fire-and-forget,
+  only when the video was actually stored, and skipped if the template is blank. No verdict is implied —
+  it only confirms "received & under review".
 
 ### 21.7 User/Active menu (`/admin/active`, `ParticipantList.tsx`)
 - A **program dropdown** + a **group filter** (Semua / Aktif / Selesai / Gugur / Menunggu verifikasi).

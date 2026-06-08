@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyWahaSignature, fetchInboundMedia, parseJid, resolveLidToPhone, resolvePhoneToLid } from '@/lib/waha';
+import { sendChallengeReminderOnce } from '@/lib/challenge-reminders';
 import { saveChallengeMedia } from '@/lib/files';
 import { normalizeIndonesianPhone } from '@/lib/phone';
 import { ParticipantStatus, Prisma } from '@prisma/client';
@@ -193,6 +194,24 @@ export async function POST(req: NextRequest) {
       where: { id: participant.id },
       data: { status: ParticipantStatus.PENDING_INITIAL_REVIEW },
     });
+  }
+
+  // 8. Acknowledge receipt to the buyer (only when the video was actually stored) via the
+  //    editable `proof_received` template. Idempotent per message (ChallengeReminderLog) and
+  //    humanized (§12.2.1); fire-and-forget so we still ack WAHA fast. Skips silently if the
+  //    operator left the template blank.
+  if (mediaPath) {
+    const templates = (challenge.messageTemplates as Record<string, string>) ?? {};
+    const ackTpl = templates['proof_received'];
+    if (ackTpl) {
+      sendChallengeReminderOnce({
+        participantId: participant.id,
+        whatsapp,
+        key: `proof_received:${messageId ?? kind}`,
+        template: ackTpl,
+        contactInfo: challenge.contactInfo,
+      }).catch(err => console.error(`${TAG} proof_received send error:`, err));
+    }
   }
 
   console.log(`${TAG} accepted: participant=%s kind=%s stored=%s%s`,

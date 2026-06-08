@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.11.0 |
+| PRD version in sync with | 0.11.1 |
 | Last updated | 2026-06-08 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages built (green) — pending VPS deploy + migration** |
 | Repo working state | green (build passes, tsc clean) |
@@ -162,6 +162,17 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-08 — **Instant `after_purchase` on PAID (PRD 0.11.1 §21.8).** Extracted
+  `sendChallengeReminderOnce()` from the cron worker (reserve-then-send, idempotent via
+  `ChallengeReminderLog`, returns sent/skipped/failed) and call it fire-and-forget from the Midtrans
+  webhook right after auto-creating the participant — so the "Setelah pembelian" instruction arrives in
+  seconds instead of waiting for the hourly cron tick. The shared log key means the hourly cron never
+  double-sends. Worker refactored to use the same helper (behavior unchanged). tsc + 148 tests + build
+  green. **Deploy: code-only (`git pull && docker compose up -d --build`), no migration.**
+  *(Prod debug this session: the missing e-book/participant was a forgotten `prisma migrate deploy`
+  (D12 migration `20260606020000` adding enum `AWAITING_INITIAL` + `ChallengeReminderLog`) + a broken
+  challenge-reminders crontab line (typo'd host `ales.` + wrong `Authorization: Bearer` instead of
+  `x-cron-secret`). Both fixed on the VM.)*
 - 2026-06-08 — **D13 external landing pages wired to checkout (PRD 0.11.0 §22).** The 3 standalone
   pages in `landing-pages/` (`lp1/2/3.html`, hosted on other domains) now POST a real order to
   `{CHECKOUT_API_BASE}/api/checkout` and redirect to the Midtrans `redirectUrl` (was: `wa.me`).

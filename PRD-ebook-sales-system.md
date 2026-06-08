@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.11.0 |
+| Version | 0.11.1 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
@@ -14,6 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.11.1** (2026-06-08) — **`after_purchase` challenge instructions now sent INSTANTLY on PAID.** Previously the "Setelah pembelian" message only went out on the next hourly `challenge-reminders` cron tick (up to ~1h delay). The Midtrans webhook now sends it immediately when it auto-creates the participant, via a new reusable `sendChallengeReminderOnce()` (extracted from the cron worker) — **idempotent through the same `ChallengeReminderLog`**, so the hourly cron never double-sends. Fire-and-forget (webhook still acks 200 fast); humanized send (§12.2.1). Other reminders (h7/day1/…) stay on the cron. §21.8.
 - **0.11.0** (2026-06-08) — **External landing pages wired to checkout (slice D13) — BUILT.** The three standalone marketing pages in `landing-pages/` (`lp1/2/3.html`, hosted on other domains) now POST a real order to `{CHECKOUT_API_BASE}/api/checkout` (`{ productSlug, name, email, whatsapp, trackingId }`) and redirect the buyer to the returned Midtrans `redirectUrl` — replacing the old `wa.me` redirect. Each page has two operator-set constants (`CHECKOUT_API_BASE`, `PRODUCT_SLUG`); email is now **required** (the `Customer` row + Midtrans need it); `?ref`/`?utm_source`/`?fbclid` → `trackingId`. Each hosted origin must be added to the CORS allowlist (Pengaturan, invariant #10). No app/schema change — reuses the existing checkout contract. Setup: `landing-pages/README.md`. §22.
 - **0.10.0** (2026-06-06) — **Challenge WhatsApp automation (slice D12) — BUILT.** Auto-creates a participant on **PAID** for a challenge-active program (`AWAITING_INITIAL` = "Menunggu Bukti Awal"); a new cron `GET /api/cron/challenge-reminders` (CRON_SECRET, hourly) sends the rules' reminder schedule via `sendTextHumanized` (each once, idempotent via new `ChallengeReminderLog`) and auto-eliminates at H+15 (no initial proof) / day-105 (no final proof). `final_received` confirmation is sent by the verify-final action. New enum value `AWAITING_INITIAL` + `ChallengeReminderLog` table; `lib/challenge.ts` gains pure `computeDueReminders`/`renderTemplate`. Dashboard Active KPIs remain stubbed (out of scope). §21.8.
 - **0.9.1** (2026-06-06) — **Challenge config: test-send for WA templates.** The Challenge Configuration "Kontak & Template WhatsApp" card gains a **test recipient number** field and a **"Kirim tes"** button under each template textarea — it substitutes `{{contact}}` and sends that message via the humanized sequence (§12.2.1) so the operator can preview reminders before the D12 automation. New endpoint `POST /api/admin/whatsapp/test` (`{ whatsapp, text }`, `requireAdmin`). §21.5.
@@ -1517,6 +1518,13 @@ whose `Challenge.isActive`, the Midtrans webhook upserts a `ChallengeParticipant
 immediately and receive the start-window reminders. (Idempotent upsert by `orderId`.) When their initial
 video later arrives, the inbound webhook moves `AWAITING_INITIAL → PENDING_INITIAL_REVIEW`.
 
+**Instant `after_purchase` (decided):** right after that upsert, the webhook sends the `after_purchase`
+instruction message **immediately** (fire-and-forget; the webhook still acks 200 fast) via the reusable
+`sendChallengeReminderOnce()` — the same idempotent reserve-then-send used by the cron, keyed on
+`ChallengeReminderLog`, so the hourly cron **never re-sends** it. The buyer gets the challenge
+instructions in seconds, not up to an hour later. All other reminders (h7/h13/h14, day1/30/60/90, the
+final-proof nudges) remain cron-driven.
+
 **Scheduler (decided):** a cron-gated endpoint **`GET /api/cron/challenge-reminders`** (auth = `isCron`
 / `CRON_SECRET`, like `process-deliveries`), hit **hourly** by system cron. It scans participants in
 `AWAITING_INITIAL` / `RUNNING`, computes due reminders + eliminations, sends, and logs.
@@ -1533,10 +1541,12 @@ hour still catches up. Days are WIB calendar days.
 - `final_received` is **event-based**, sent by the **verify-final admin action** (not the cron) right
   after `COMPLETED`.
 
-**Sending.** Render the template (`{{contact}}` → `Challenge.contactInfo`) and send via
-`sendTextHumanized` (§12.2.1). Reserve the slot first (`ChallengeReminderLog` create; P2002 → already
-sent, skip) **then** send, recording `wahaMessageId` or `error` on the log. Reserving-before-sending
-favors **no double-send** (anti-spam) over guaranteeing delivery; failures are visible on the log row.
+**Sending (`sendChallengeReminderOnce()` in `lib/challenge-reminders.ts`).** One reusable helper for
+both the cron worker and the webhook's instant `after_purchase`. Render the template (`{{contact}}` →
+`Challenge.contactInfo`) and send via `sendTextHumanized` (§12.2.1). Reserve the slot first
+(`ChallengeReminderLog` create; P2002 → already sent → `'skipped'`) **then** send, recording
+`wahaMessageId` or `error` on the log. Reserving-before-sending favors **no double-send** (anti-spam)
+over guaranteeing delivery; failures are visible on the log row.
 
 **Rate / anti-spam pacing.** The worker is **strictly sequential** (no parallel sends). Each message
 already carries the humanized typing delay (§12.2.1; caps ~6s for long templates), and the worker adds a

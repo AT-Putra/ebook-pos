@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { verifySignature, mapMidtransStatus } from '@/lib/midtrans';
 import { advanceOrderStatus } from '@/lib/orders';
 import { attemptDelivery } from '@/lib/delivery';
+import { sendChallengeReminderOnce } from '@/lib/challenge-reminders';
 import { OrderStatus, ParticipantStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
@@ -82,17 +83,37 @@ export async function POST(req: NextRequest) {
       // so they get the start-window reminders. Idempotent upsert by orderId.
       const challenge = await db.challenge.findUnique({ where: { productId: order.productId } });
       if (challenge?.isActive && updated.paidAt) {
-        await db.challengeParticipant.upsert({
-          where: { orderId: order.id },
-          update: {},
-          create: {
-            challengeId: challenge.id,
-            customerId: order.customerId,
-            orderId: order.id,
-            status: ParticipantStatus.AWAITING_INITIAL,
-            purchaseAt: updated.paidAt,
-          },
-        }).catch(err => console.error('[webhook] Challenge participant create error:', err));
+        try {
+          const participant = await db.challengeParticipant.upsert({
+            where: { orderId: order.id },
+            update: {},
+            create: {
+              challengeId: challenge.id,
+              customerId: order.customerId,
+              orderId: order.id,
+              status: ParticipantStatus.AWAITING_INITIAL,
+              purchaseAt: updated.paidAt,
+            },
+            include: { customer: true },
+          });
+
+          // Send the "after purchase" challenge instructions IMMEDIATELY (don't wait for the
+          // hourly reminder cron). Idempotent via ChallengeReminderLog, so the cron never
+          // re-sends it. Fire-and-forget — the webhook still acks 200 right away.
+          const templates = (challenge.messageTemplates as Record<string, string>) ?? {};
+          const afterPurchaseTpl = templates['after_purchase'];
+          if (afterPurchaseTpl) {
+            sendChallengeReminderOnce({
+              participantId: participant.id,
+              whatsapp: participant.customer.whatsapp,
+              key: 'after_purchase',
+              template: afterPurchaseTpl,
+              contactInfo: challenge.contactInfo,
+            }).catch(err => console.error('[webhook] after_purchase send error:', err));
+          }
+        } catch (err) {
+          console.error('[webhook] Challenge participant create error:', err);
+        }
       }
     }
   }

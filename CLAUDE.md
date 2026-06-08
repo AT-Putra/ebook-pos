@@ -93,7 +93,11 @@ done, idempotent, and recoverable.
 14. **Humanized WA sends (§12.2.1, anti-spam — ALWAYS)**: every conversational/reminder text send (D12
     reminders, any reply) MUST go through `lib/waha.ts` `sendTextHumanized`: `sendSeen` → `startTyping` →
     wait a random interval scaled to message length → `stopTyping` → `sendText` (all `X-Api-Key`, https).
-    The transactional e-book `sendFile` on PAID is exempt (may still typing-indicate).
+    The transactional e-book `sendFile` on PAID is exempt (may still typing-indicate). **Recipient priming:**
+    BOTH send paths call `primeRecipient(chatId)` first — `checkNumberExists` (`GET /api/contacts/check-exists`)
+    to resolve + prime the E2E session for a never-contacted number (else the send is accepted but stuck
+    `PENDING`/undelivered), then a randomized `primeDelayMs` (1.5–3.5s). Best-effort, never blocks the send.
+    Debug: `[waha-send]` log turns on with `NODE_ENV=development` OR env `WAHA_LOG_SENDS=1`.
 
 ## Status mapping (Midtrans → OrderStatus)
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·

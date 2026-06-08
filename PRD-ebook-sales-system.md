@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.11.5 |
+| Version | 0.11.6 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
@@ -14,6 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.11.6** (2026-06-08) — **Prime never-contacted recipients before sending (first-contact delivery fix).** Messages to a number that had **never messaged the WAHA account first** were accepted by the API (`status: PENDING`) but never delivered — WhatsApp's E2E encryption has no session for an unknown recipient. Both send paths (`sendFile`, `sendTextHumanized`) now call `primeRecipient(chatId)` first: WAHA's `GET /api/contacts/check-exists` (new `checkNumberExists` helper) performs the on-WhatsApp lookup that resolves the recipient + primes the encryption session, then a short **randomized delay** (`primeDelayMs`, 1500–3500ms) before the actual send. Best-effort — a failed/negative check never blocks the send. Pure helpers unit-tested. No schema/migration. §12.2.1.
 - **0.11.5** (2026-06-08) — **WAHA send logging can now be enabled in production.** The `[waha-send]` log (added in 0.11.4) was gated on `NODE_ENV==='development'`, so it never appeared on the prod container (`NODE_ENV=production`). It now also turns on when the **`WAHA_LOG_SENDS`** env var is truthy (`1`/`true`) — set it in the prod env/compose to debug live sends without rebuilding the image or changing `NODE_ENV`. Still off by default in prod (the per-send LID lookup is opt-in). §12.2.1.
 - **0.11.4** (2026-06-08) — **Dev-only WAHA send logging.** When `NODE_ENV=development`, every outbound WAHA message (`sendFile`, `sendText`) logs `[waha-send] <kind> chatId=<…@c.us> lid=<…@lid> response=<WAHA JSON>` — the LID is resolved best-effort via `resolvePhoneToLid`. No-op in production; never throws (LID lookup failure logs `-`). Aids debugging the `@c.us`↔`@lid` correlation. §12.2.1.
 - **0.11.3** (2026-06-08) — **Auto-acknowledge proof videos on receipt.** When the inbound webhook successfully stores a proof video (initial OR final), it now sends the buyer a confirmation via a new **editable `proof_received` template** ("Menerima bukti video" in the Challenge config "Kontak & Template WhatsApp" section, positioned right before "Hari 1 (mulai)"). Humanized send (§12.2.1), idempotent per message (`ChallengeReminderLog` key `proof_received:<msgId>`), fire-and-forget, only when the video was actually stored (not on oversize/download-fail), and skipped if the template is left blank. Seeded default text; merged into existing challenges via the GET defaults-merge. The webhook still **never auto-verifies** (admin reviews). §21.6.
@@ -710,6 +711,16 @@ All calls use `X-Api-Key: WAHA_API_KEY` over `https://`. (Endpoints confirmed at
 https://waha.devlike.pro/docs/how-to/send-messages/.) **Bulk sends must be strictly sequential** (never
 parallel) and additionally spaced by a randomized gap between recipients — see the D12 worker (§21.8) —
 so a single WhatsApp number never approaches a per-second send rate.
+
+**Recipient priming (first-contact delivery):** WhatsApp is end-to-end encrypted — to deliver to a number
+that has **never contacted** the WAHA account, the engine first needs that recipient's key bundle/session,
+or the message is accepted by the API but stuck at `status: PENDING` and never arrives (and starts working
+only once the recipient messages first). So **both** send paths call `primeRecipient(chatId)` before sending:
+`GET /api/contacts/check-exists` (`checkNumberExists`) — the on-WhatsApp lookup that resolves the recipient
+and primes the session — then a short **randomized delay** (`primeDelayMs`, ~1.5–3.5s) before the actual
+send. Best-effort: a failed or negative check is logged but never blocks the send (the lookup's priming
+side-effect is the point). This does NOT override WhatsApp's own anti-spam — the sender number must still be
+a real, warmed-up account.
 
 **Send logging (debug):** both outbound paths (`sendFile`, `sendText`) emit a `[waha-send] <kind>
 chatId=<…@c.us> lid=<…@lid> response=<WAHA JSON>` line so the `@c.us`↔`@lid` identity and WAHA's response

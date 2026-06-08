@@ -24,6 +24,9 @@ export async function sendFile(p: WahaSendFileParams): Promise<WahaMessageResult
     throw new Error('WAHA_BASE_URL must start with https:// — refusing to send over plain HTTP.');
   }
 
+  // Prime a never-contacted recipient so the file actually delivers (not just PENDING).
+  await primeRecipient(p.chatId);
+
   const body = {
     session: env.WAHA_SESSION,
     chatId: p.chatId,
@@ -122,6 +125,51 @@ export async function resolvePhoneToLid(phone: string): Promise<string | null> {
   return typeof lid === 'string' ? lid : null;
 }
 
+// ── Recipient priming (first-contact delivery, §12.2.1) ─────────────────────
+// WhatsApp is end-to-end encrypted: to deliver to a number that has NEVER contacted
+// the WAHA account, the engine first needs that recipient's key bundle / session —
+// otherwise the message is accepted by the API but stays `status: PENDING` and never
+// arrives. WAHA's number-existence check performs the on-WhatsApp lookup that resolves
+// the recipient and primes that session, so the send actually delivers.
+
+/** Checks whether a phone number is registered on WhatsApp via WAHA's
+ *  `GET /api/contacts/check-exists`. Returns null if the call itself fails. */
+export async function checkNumberExists(
+  phone: string,
+): Promise<{ numberExists: boolean; chatId: string | null } | null> {
+  const id = parseJid(phone).id;
+  const data = await wahaGetJson(
+    `/api/contacts/check-exists?phone=${encodeURIComponent(id)}&session=${encodeURIComponent(env.WAHA_SESSION)}`,
+  );
+  if (!data) return null;
+  return {
+    numberExists: data.numberExists === true,
+    chatId: typeof data.chatId === 'string' ? data.chatId : null,
+  };
+}
+
+/** Randomized pause (ms) after the existence check, before the actual send. Pure → testable. */
+export function primeDelayMs(rnd: number = Math.random()): number {
+  const min = 1500;
+  const max = 3500;
+  return Math.round(min + rnd * (max - min));
+}
+
+/** Primes a recipient before sending: runs the number-existence check (which also
+ *  establishes the encryption session for a never-contacted number so the message
+ *  actually delivers, not just PENDING), then waits a short randomized delay.
+ *  Best-effort — never throws and never blocks the send, even if the number reports
+ *  as not existing (the lookup's priming side-effect is what matters). */
+async function primeRecipient(chatId: string): Promise<void> {
+  try {
+    const result = await checkNumberExists(chatId);
+    await logWahaSendDev('check-exists', chatId, result);
+  } catch {
+    // best-effort — a failed check must not block the send
+  }
+  await sleep(primeDelayMs());
+}
+
 /** Logs an outbound WAHA send with the chatId (`…@c.us`), the resolved `…@lid`, and the
  *  WAHA API response — to correlate WhatsApp identities while debugging.
  *  Enabled when NODE_ENV=development OR `WAHA_LOG_SENDS` is truthy (1/true) — the latter lets
@@ -171,6 +219,8 @@ export async function sendTextHumanized(p: {
   text: string;
   messageId?: string;
 }): Promise<WahaMessageResult> {
+  // Prime a never-contacted recipient first (then the humanized sequence below).
+  await primeRecipient(p.chatId);
   try {
     await wahaPost('/api/sendSeen', { chatId: p.chatId, messageIds: p.messageId ? [p.messageId] : undefined });
     await wahaPost('/api/startTyping', { chatId: p.chatId });

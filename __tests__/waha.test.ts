@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { verifyWahaSignature, typingDelayMs, parseJid } from '@/lib/waha';
+import { verifyWahaSignature, typingDelayMs, parseJid, primeDelayMs, checkNumberExists } from '@/lib/waha';
 
 const SECRET = 'test-waha-webhook-secret'; // matches jest.setup.ts
 
@@ -38,6 +38,35 @@ describe('typingDelayMs (humanized send, §12.2.1)', () => {
 
   it('is deterministic given rnd', () => {
     expect(typingDelayMs('hello', 0)).toBe(typingDelayMs('hello', 0));
+  });
+});
+
+describe('primeDelayMs (post-existence-check pause, §12.2.1)', () => {
+  it('stays within the 1500–3500ms band', () => {
+    expect(primeDelayMs(0)).toBe(1500);
+    expect(primeDelayMs(1)).toBe(3500);
+    expect(primeDelayMs(0.5)).toBe(2500);
+  });
+  it('is deterministic given rnd', () => {
+    expect(primeDelayMs(0.25)).toBe(primeDelayMs(0.25));
+  });
+});
+
+describe('checkNumberExists (recipient priming, §12.2.1)', () => {
+  const realFetch = global.fetch;
+  afterEach(() => { global.fetch = realFetch; });
+
+  it('parses numberExists + chatId from a 200 response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ numberExists: true, chatId: '628123@c.us' }),
+    }) as unknown as typeof fetch;
+    expect(await checkNumberExists('628123')).toEqual({ numberExists: true, chatId: '628123@c.us' });
+  });
+
+  it('returns null when the WAHA call fails (non-ok)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false }) as unknown as typeof fetch;
+    expect(await checkNumberExists('628123')).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyWahaSignature, fetchInboundMedia } from '@/lib/waha';
+import { verifyWahaSignature, fetchInboundMedia, parseJid, resolveLidToPhone, resolvePhoneToLid } from '@/lib/waha';
 import { saveChallengeMedia } from '@/lib/files';
 import { normalizeIndonesianPhone } from '@/lib/phone';
 import { ParticipantStatus, Prisma } from '@prisma/client';
@@ -63,23 +63,61 @@ export async function POST(req: NextRequest) {
     if (dup) return ignore('duplicate');
   }
 
-  // 3. Match sender → a PAID order for a challenge-active program (by WhatsApp number,
-  //    so a buyer with more than one Customer row still matches).
-  const chatId = payload.from ?? '';
-  if (!chatId.endsWith('@c.us')) return ignore('not-direct');
-  let whatsapp: string;
-  try {
-    whatsapp = normalizeIndonesianPhone(chatId.replace('@c.us', ''));
-  } catch {
-    return ignore('bad-number');
+  // 3. Resolve the sender to a phone number. WhatsApp now often sends a privacy
+  //    `…@lid` id instead of `…@c.us`; a LID is not a phone number, so map it via
+  //    WAHA's LIDs API (§21.6). DMs from buyers normally resolve fine.
+  const sender = parseJid(payload.from ?? '');
+  let whatsapp: string | null = null;
+  let inboundLidId: string | null = null;
+
+  if (sender.kind === 'phone') {
+    try { whatsapp = normalizeIndonesianPhone(sender.id); } catch { return ignore('bad-number'); }
+  } else if (sender.kind === 'lid') {
+    inboundLidId = sender.id;
+    try {
+      const pn = await resolveLidToPhone(payload.from!);
+      if (pn) {
+        try { whatsapp = normalizeIndonesianPhone(parseJid(pn).id); } catch { /* keep null → fall back */ }
+      }
+    } catch (err) {
+      console.warn(`${TAG} lid→pn resolve error:`, err);
+    }
+  } else {
+    return ignore('not-direct');
   }
 
-  const order = await db.order.findFirst({
-    where: { status: 'PAID', customer: { whatsapp }, product: { challenge: { isActive: true } } },
-    orderBy: { paidAt: 'desc' },
-    include: { product: { include: { challenge: true } } },
-  });
-  if (!order || !order.product.challenge || !order.paidAt) {
+  // 4. Match sender → a PAID order for a challenge-active program (by WhatsApp number,
+  //    so a buyer with more than one Customer row still matches).
+  let order = whatsapp
+    ? await db.order.findFirst({
+        where: { status: 'PAID', customer: { whatsapp }, product: { challenge: { isActive: true } } },
+        orderBy: { paidAt: 'desc' },
+        include: { customer: true, product: { include: { challenge: true } } },
+      })
+    : null;
+
+  // Fallback: WAHA couldn't map the LID → phone (pn null). Match by resolving each
+  // candidate buyer's phone → LID and comparing to the inbound LID (the reliable direction).
+  if (!order && inboundLidId) {
+    const candidates = await db.order.findMany({
+      where: { status: 'PAID', product: { challenge: { isActive: true } } },
+      orderBy: { paidAt: 'desc' },
+      include: { customer: true, product: { include: { challenge: true } } },
+    });
+    const checked = new Set<string>();
+    for (const c of candidates) {
+      if (checked.has(c.customer.whatsapp)) continue;
+      checked.add(c.customer.whatsapp);
+      const lid = await resolvePhoneToLid(c.customer.whatsapp);
+      if (lid && parseJid(lid).id === inboundLidId) {
+        order = c;
+        whatsapp = c.customer.whatsapp;
+        break;
+      }
+    }
+  }
+
+  if (!order || !order.product.challenge || !order.paidAt || !whatsapp) {
     return ignore('no-active-challenge');
   }
   const challenge = order.product.challenge;

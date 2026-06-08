@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.11.1 |
+| Version | 0.11.2 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-06 |
@@ -14,6 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.11.2** (2026-06-08) — **Inbound proof videos from WhatsApp `@lid` senders now captured.** WhatsApp increasingly sends inbound DMs with a privacy **`…@lid`** sender id instead of `…@c.us`; the inbound webhook was rejecting these as `not-direct`, so proof videos were dropped. Now `parseJid()` classifies the sender and LIDs are resolved to a phone number via WAHA's LIDs API (`resolveLidToPhone`; fallback matches candidate buyers via `resolvePhoneToLid`). Pure `parseJid` unit-tested. No schema/migration. §21.6.
 - **0.11.1** (2026-06-08) — **`after_purchase` challenge instructions now sent INSTANTLY on PAID.** Previously the "Setelah pembelian" message only went out on the next hourly `challenge-reminders` cron tick (up to ~1h delay). The Midtrans webhook now sends it immediately when it auto-creates the participant, via a new reusable `sendChallengeReminderOnce()` (extracted from the cron worker) — **idempotent through the same `ChallengeReminderLog`**, so the hourly cron never double-sends. Fire-and-forget (webhook still acks 200 fast); humanized send (§12.2.1). Other reminders (h7/day1/…) stay on the cron. §21.8.
 - **0.11.0** (2026-06-08) — **External landing pages wired to checkout (slice D13) — BUILT.** The three standalone marketing pages in `landing-pages/` (`lp1/2/3.html`, hosted on other domains) now POST a real order to `{CHECKOUT_API_BASE}/api/checkout` (`{ productSlug, name, email, whatsapp, trackingId }`) and redirect the buyer to the returned Midtrans `redirectUrl` — replacing the old `wa.me` redirect. Each page has two operator-set constants (`CHECKOUT_API_BASE`, `PRODUCT_SLUG`); email is now **required** (the `Customer` row + Midtrans need it); `?ref`/`?utm_source`/`?fbclid` → `trackingId`. Each hosted origin must be added to the CORS allowlist (Pengaturan, invariant #10). No app/schema change — reuses the existing checkout contract. Setup: `landing-pages/README.md`. §22.
 - **0.10.0** (2026-06-06) — **Challenge WhatsApp automation (slice D12) — BUILT.** Auto-creates a participant on **PAID** for a challenge-active program (`AWAITING_INITIAL` = "Menunggu Bukti Awal"); a new cron `GET /api/cron/challenge-reminders` (CRON_SECRET, hourly) sends the rules' reminder schedule via `sendTextHumanized` (each once, idempotent via new `ChallengeReminderLog`) and auto-eliminates at H+15 (no initial proof) / day-105 (no final proof). `final_received` confirmation is sent by the verify-final action. New enum value `AWAITING_INITIAL` + `ChallengeReminderLog` table; `lib/challenge.ts` gains pure `computeDueReminders`/`renderTemplate`. Dashboard Active KPIs remain stubbed (out of scope). §21.8.
@@ -1479,6 +1480,14 @@ Stored `ParticipantStatus`: `PENDING_INITIAL_REVIEW`, `RUNNING`, `PENDING_FINAL_
 - **Parse + match:** only process `hasMedia && media.mimetype` startsWith `"video/"`. Normalize
   `payload.from` → `Customer` by `whatsapp` → their eligible **PAID** `Order` for a program with
   `Challenge.isActive = true`. No match → log + `200` (ignore non-participants).
+- **WhatsApp LID (privacy id) handling (added 0.11.2):** WhatsApp now often sends `payload.from` as a
+  **`…@lid`** privacy identifier instead of `…@c.us`. A LID is **not** a phone number, so `parseJid()`
+  classifies the sender and, for a LID, we resolve it via WAHA's **LIDs API** (`lib/waha.ts`
+  `resolveLidToPhone` → `GET /api/{session}/lids/{lid}` → `{ lid, pn }`). If `pn` is non-null we match by
+  phone as usual. If WAHA can't map it (`pn` null), we **fall back** to scanning candidate PAID buyers and
+  comparing each one's `resolvePhoneToLid` (`GET /api/{session}/lids/pn/{number}`) to the inbound LID — the
+  reliable direction for DMs. A non-`@c.us`/non-`@lid` sender (groups etc.) is ignored (`not-direct`). Both
+  LIDs calls use `X-Api-Key` over https (invariant #5).
 - **Media fetch + store:** GET `media.url` with header `X-Api-Key: WAHA_API_KEY` (the URL must be
   `https://` per invariant #5). Enforce a size cap (~`videoMaxSizeMb` + margin) and a `video/*` content
   type, then store under **`CHALLENGE_MEDIA_DIR`** with a generated traversal-safe name (reuse the

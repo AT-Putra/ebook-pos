@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { verifyWahaSignature, typingDelayMs } from '@/lib/waha';
+import { verifyWahaSignature, typingDelayMs, parseJid } from '@/lib/waha';
 
 const SECRET = 'test-waha-webhook-secret'; // matches jest.setup.ts
 
@@ -38,5 +38,17 @@ describe('typingDelayMs (humanized send, §12.2.1)', () => {
 
   it('is deterministic given rnd', () => {
     expect(typingDelayMs('hello', 0)).toBe(typingDelayMs('hello', 0));
+  });
+});
+
+describe('parseJid (WhatsApp sender classification, §21.6)', () => {
+  it('classifies a phone-number chatId', () => {
+    expect(parseJid('628123456789@c.us')).toEqual({ kind: 'phone', id: '628123456789' });
+  });
+  it('classifies a privacy LID', () => {
+    expect(parseJid('31095596777502@lid')).toEqual({ kind: 'lid', id: '31095596777502' });
+  });
+  it('treats group / unknown jids as other', () => {
+    expect(parseJid('123-456@g.us').kind).toBe('other');
   });
 });

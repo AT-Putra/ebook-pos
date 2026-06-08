@@ -82,7 +82,9 @@ done, idempotent, and recoverable.
     auth = **HMAC-SHA512** of the raw body in header `X-Webhook-Hmac` (key = `WAHA_WEBHOOK_SECRET`,
     constant-time compare, like Midtrans); **idempotent** on `payload.id` (→ `wahaMessageId`). Inbound
     media arrives as `payload.media.url` — download it with `X-Api-Key: WAHA_API_KEY` (https only) and
-    store under `CHALLENGE_MEDIA_DIR` (invariant #4). %-loss formula `(awal−akhir)/awal×100` is FIXED.
+    store under `CHALLENGE_MEDIA_DIR` (invariant #4). **Sender id may be a privacy `…@lid` (not a phone
+    number)** — `lib/waha.ts` `parseJid`/`resolveLidToPhone`/`resolvePhoneToLid` map it via WAHA's LIDs
+    API so the inbound match still works (§21.6). %-loss formula `(awal−akhir)/awal×100` is FIXED.
     D11 = config + User/Active + inbound capture ONLY (no auto-verify, no auto-reply); outbound WA
     reminders + auto phase/elimination cron are deferred to D12. Challenge is additive: never touches the
     buyer checkout/delivery flow.

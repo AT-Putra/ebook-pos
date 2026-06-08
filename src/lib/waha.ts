@@ -83,6 +83,44 @@ export async function fetchInboundMedia(
   return { buffer, mimeType, sizeBytes: buffer.length };
 }
 
+// ── WhatsApp LID (privacy id) resolution (§21.6) ────────────────────────────
+// WhatsApp increasingly sends inbound messages with a `…@lid` sender id instead of the
+// phone-number `…@c.us` id. A LID is NOT a phone number, so we map it via WAHA's LIDs API.
+
+/** Classifies a WAHA JID. Pure → testable. `id` is the part before the `@`. */
+export function parseJid(jid: string): { kind: 'phone' | 'lid' | 'other'; id: string } {
+  if (jid.endsWith('@c.us')) return { kind: 'phone', id: jid.slice(0, -'@c.us'.length) };
+  if (jid.endsWith('@lid')) return { kind: 'lid', id: jid.slice(0, -'@lid'.length) };
+  return { kind: 'other', id: jid };
+}
+
+async function wahaGetJson(path: string): Promise<Record<string, unknown> | null> {
+  const baseUrl = env.WAHA_BASE_URL;
+  if (!baseUrl.startsWith('https://')) {
+    throw new Error('WAHA_BASE_URL must start with https:// — refusing to call over plain HTTP.');
+  }
+  const res = await fetch(`${baseUrl}${path}`, { headers: { 'X-Api-Key': env.WAHA_API_KEY } });
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Record<string, unknown> | null;
+}
+
+/** Resolve a `…@lid` to its phone-number chatId (`…@c.us`) via `GET /lids/{lid}`.
+ *  Returns null when WAHA has no mapping (`pn` null) — DMs usually resolve fine. */
+export async function resolveLidToPhone(lid: string): Promise<string | null> {
+  const id = parseJid(lid).id;
+  const data = await wahaGetJson(`/api/${encodeURIComponent(env.WAHA_SESSION)}/lids/${encodeURIComponent(id)}`);
+  const pn = data?.pn;
+  return typeof pn === 'string' ? pn : null;
+}
+
+/** Resolve a phone number (bare digits or `…@c.us`) to its `…@lid` via `GET /lids/pn/{pn}`. */
+export async function resolvePhoneToLid(phone: string): Promise<string | null> {
+  const id = parseJid(phone).id;
+  const data = await wahaGetJson(`/api/${encodeURIComponent(env.WAHA_SESSION)}/lids/pn/${encodeURIComponent(id)}`);
+  const lid = data?.lid;
+  return typeof lid === 'string' ? lid : null;
+}
+
 // ── Humanized send sequence (anti-spam, §12.2.1) ────────────────────────────
 
 async function wahaPost(path: string, body: unknown): Promise<Response> {

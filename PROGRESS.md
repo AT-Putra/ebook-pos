@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.11.4 |
+| PRD version in sync with | 0.11.5 |
 | Last updated | 2026-06-08 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages built (green) — pending VPS deploy + migration** |
 | Repo working state | green (build passes, tsc clean) |
@@ -162,6 +162,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-08 — **WAHA send logging enableable in prod (PRD 0.11.5 §12.2.1).** The `[waha-send]` log was
+  gated on `NODE_ENV==='development'`, so it never appeared on the prod container (`NODE_ENV=production`).
+  `logWahaSendDev` now also enables when env var **`WAHA_LOG_SENDS`** is `1`/`true`. Set it in the prod
+  env/compose (then `docker compose up -d`) to debug live sends without rebuilding/changing `NODE_ENV`.
+  Off by default in prod. Code-only. 152 tests + tsc green.
 - 2026-06-08 — **Dev-only WAHA send logging (PRD 0.11.4 §12.2.1).** `lib/waha.ts` `logWahaSendDev`
   (gated on `NODE_ENV==='development'`) logs `[waha-send] <kind> chatId=…@c.us lid=…@lid response=<json>`
   from `sendFile`/`sendText`; LID resolved best-effort via `resolvePhoneToLid`. No-op in prod/tests.

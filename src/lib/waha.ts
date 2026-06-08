@@ -122,11 +122,15 @@ export async function resolvePhoneToLid(phone: string): Promise<string | null> {
   return typeof lid === 'string' ? lid : null;
 }
 
-/** Development-only: log an outbound WAHA send with the chatId (`…@c.us`), the resolved
- *  `…@lid`, and the WAHA API response — to correlate WhatsApp identities while debugging.
- *  No-op unless NODE_ENV=development; the LID lookup is best-effort (never throws). */
+/** Logs an outbound WAHA send with the chatId (`…@c.us`), the resolved `…@lid`, and the
+ *  WAHA API response — to correlate WhatsApp identities while debugging.
+ *  Enabled when NODE_ENV=development OR `WAHA_LOG_SENDS` is truthy (1/true) — the latter lets
+ *  you switch it on in production (where NODE_ENV=production) without rebuilding the image.
+ *  No-op otherwise; the LID lookup is best-effort (never throws). */
 async function logWahaSendDev(kind: string, chatId: string, response: unknown): Promise<void> {
-  if (process.env.NODE_ENV !== 'development') return;
+  const flag = process.env.WAHA_LOG_SENDS;
+  const enabled = process.env.NODE_ENV === 'development' || flag === '1' || flag === 'true';
+  if (!enabled) return;
   let lid: string | null = null;
   try { lid = await resolvePhoneToLid(chatId); } catch { /* best-effort */ }
   console.log(`[waha-send] ${kind} chatId=${chatId} lid=${lid ?? '-'} response=${JSON.stringify(response)}`);

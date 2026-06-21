@@ -109,6 +109,7 @@ export async function POST(req: NextRequest) {
               key: 'after_purchase',
               template: afterPurchaseTpl,
               contactInfo: challenge.contactInfo,
+              productId: challenge.productId,
             }).catch(err => console.error('[webhook] after_purchase send error:', err));
           }
         } catch (err) {

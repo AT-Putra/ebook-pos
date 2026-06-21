@@ -1,8 +1,9 @@
-import { DeliveryStatus } from '@prisma/client';
+import { DeliveryStatus, WaLogStatus } from '@prisma/client';
 import { db } from './db';
 import { readEbookAsBase64 } from './files';
 import { sendFile } from './waha';
 import { toChatId } from './phone';
+import { logWaSend } from './wa-log';
 
 export const BACKOFF_MINUTES = [1, 5, 15, 60, 360]; // exponential backoff schedule
 
@@ -142,15 +143,40 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
           lastError: null,
         },
       });
+      await logWaSend({
+        category: item.kind === 'ebook' ? 'ebook' : 'attachment',
+        status: WaLogStatus.SENT,
+        chatId,
+        fileName: item.fileName,
+        body: caption,
+        wahaMessageId: result.id,
+        orderId: order.id,
+        deliveryId,
+        deliveryItemId: item.id,
+        productId: order.productId,
+      });
     } catch (err) {
       anyFailed = true;
+      const message = err instanceof Error ? err.message : String(err);
       await db.deliveryItem.update({
         where: { id: item.id },
         data: {
           status: DeliveryStatus.FAILED,
           attempts: { increment: 1 },
-          lastError: err instanceof Error ? err.message : String(err),
+          lastError: message,
         },
+      });
+      await logWaSend({
+        category: item.kind === 'ebook' ? 'ebook' : 'attachment',
+        status: WaLogStatus.FAILED,
+        chatId,
+        fileName: item.fileName,
+        body: caption,
+        error: message,
+        orderId: order.id,
+        deliveryId,
+        deliveryItemId: item.id,
+        productId: order.productId,
       });
     }
   }

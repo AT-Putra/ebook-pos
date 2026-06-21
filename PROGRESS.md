@@ -6,10 +6,10 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.11.6 |
-| Last updated | 2026-06-08 |
-| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages built (green) — pending VPS deploy + migration** |
-| Repo working state | green (build passes, tsc clean) |
+| PRD version in sync with | 0.12.0 |
+| Last updated | 2026-06-22 |
+| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs built (green) — pending VPS deploy + migration** |
+| Repo working state | green (163 tests, build passes, tsc clean) |
 
 ## How to run
 - Install: `npm install`
@@ -37,7 +37,8 @@
 - [x] **D10 — Program management** (Product gains `programName`/`salesStartAt`/`salesEndAt` + `ProductAttachment` + `DeliveryItem`; `/admin/program` list+add+edit modal with e-book PDF upload **+ attachment PDFs** add/remove; `lib/programs.ts` sales-window; checkout `403` after period ends; buyer gets **e-book + all attachments** (per-file exactly-once via `DeliveryItem`); live Program filter on Leads Report; Program is the future Challenge's reference entity) — PRD §20.11 *(built green: 118 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D11 — Challenge module** (§21): `Challenge`/`ChallengeParticipant`/`ChallengeSubmission` + `ParticipantStatus` (migration `20260606010000_add_challenge_module`); **Challenge Configuration** (`/admin/challenge`, `ChallengeConfig.tsx`, per-program config seeded from `docs/challenge-rules.md`); **User/Active** (`/admin/active`, `ParticipantList.tsx` + manage modal: verify proofs, weights, drop, %-loss leaderboard); **WAHA inbound** (`/api/webhooks/waha`, HMAC-SHA512 auth, dedupe on payload.id, media → private `CHALLENGE_MEDIA_DIR`); admin APIs `challenges/[productId]`, `participants[/id][/proof/[kind]]`; `lib/challenge.ts` pure logic + `sendTextHumanized` in `lib/waha.ts`. *(built green: 141 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D12 — Challenge WA automation** (§21.8): auto-create participant on PAID (`AWAITING_INITIAL`); hourly cron `/api/cron/challenge-reminders` sends the rules' reminder schedule (idempotent via `ChallengeReminderLog`) + auto-eliminates (H+15 / day-105); `final_received` on verify-final; `lib/challenge.ts` `computeDueReminders`. *(built green; Active KPI wiring still deferred — open Q#15)*
-- [ ] (later) D4 leads/purchase lists · D5 WA Logs (+`DeliveryAttempt`) · D6 user mgmt · D7 Laporan export page
+- [x] **D5 — WA Logs** (§20.13): new `WaMessageLog` audit table (migration `20260622000000_add_wa_message_log`) of every **outbound** WA send (e-book/attachment delivery + challenge reminders) written best-effort from `lib/wa-log.ts` (wired into `delivery.ts` + `challenge-reminders.ts`); `/admin/wa-logs` (`WaLogs.tsx`, PageHeader+DataTable, filters program/status/category/date + **Resend** on FAILED delivery rows); API `GET /api/admin/wa-logs`; backfill `npm run wa-logs:backfill`. Inbound + test-send out of scope. Resolves open Q#10. *(built green: 163 tests + tsc + build; pending VPS deploy + migration)*
+- [ ] (later) D4 leads/purchase lists · D6 user mgmt · D7 Laporan export page
 
 ## In progress
 - **D11 Challenge module — BUILT (green), not yet deployed.** All steps below done. 141 tests + tsc +
@@ -66,6 +67,15 @@
   `lib/challenge.ts` `computeDueReminders` + `renderTemplate`; cron `/api/cron/challenge-reminders`
   (isCron, hourly) sends due reminders once (reserve `ChallengeReminderLog` then send) + auto-eliminates;
   inbound webhook moves `AWAITING_INITIAL → PENDING_INITIAL_REVIEW`; verify-final sends `final_received`.
+- **D5 WA Logs — BUILT (green).** `WaMessageLog` table + migration `20260622000000_add_wa_message_log`;
+  `lib/wa-log.ts` `logWaSend` (best-effort, never blocks a send) + pure `buildPreview`/`phoneFromChatId`
+  (unit-tested); logged from `delivery.ts` (per DeliveryItem) + `challenge-reminders.ts`
+  `sendChallengeReminderOnce` (productId threaded from cron + both webhooks); API
+  `GET /api/admin/wa-logs` (status/category/programId/from/to/q filters, WIB bounds, 2000-row cap,
+  orderCode enrichment); UI `WaLogs.tsx` + `/admin/wa-logs` page; Sidebar **WA Logs** `ready: true`;
+  Resend reuses `/api/admin/deliveries/[id]/resend`. Backfill script `scripts/backfill-wa-logs.mjs`
+  (`npm run wa-logs:backfill`, idempotent). Scope decided 2026-06-22: outbound only (delivery+reminder),
+  inbound + operator test-send excluded.
 
 ## Next up
 - **Deploy D11+D12** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`
@@ -74,7 +84,10 @@
   session webhook (`events:["message"]`, url `/api/webhooks/waha`, `hmac.key=WAHA_WEBHOOK_SECRET`);
   **add a system cron hitting `GET /api/cron/challenge-reminders` hourly** (Authorization: Bearer
   `CRON_SECRET`), same pattern as `process-deliveries`.
-- Optional later: wire dashboard Active KPIs (open Q#15); D4/D5/D6/D7.
+- **Deploy D5 WA Logs** (owner): with the same `git pull && docker compose up -d --build` →
+  `prisma migrate deploy` (applies `20260622000000_add_wa_message_log`). Optionally seed history once:
+  `npm run wa-logs:backfill` (needs `DATABASE_URL`). No new env/cron/volume.
+- Optional later: wire dashboard Active KPIs (open Q#15); D4/D6/D7.
 - (D10 already deployed by owner.)
 
 ## Decisions made (carry forward — do not re-litigate)

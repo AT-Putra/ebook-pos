@@ -1,8 +1,9 @@
-import { Prisma, ParticipantStatus } from '@prisma/client';
+import { Prisma, ParticipantStatus, WaLogStatus } from '@prisma/client';
 import { db } from './db';
 import { computeDueReminders, renderTemplate, type ChallengePhase } from './challenge';
 import { sendTextHumanized } from './waha';
 import { toChatId } from './phone';
+import { logWaSend } from './wa-log';
 
 // Guaranteed extra gap BETWEEN messages (on top of sendTextHumanized's own typing delay),
 // so even short templates / many recipients never approach a per-second burst (anti-spam, §12.2.1).
@@ -26,8 +27,9 @@ export async function sendChallengeReminderOnce(args: {
   key: string;
   template: string;
   contactInfo: string | null;
+  productId?: string | null;
 }): Promise<'sent' | 'skipped' | 'failed'> {
-  const { participantId, whatsapp, key, template, contactInfo } = args;
+  const { participantId, whatsapp, key, template, contactInfo, productId } = args;
 
   // Reserve the slot first (idempotent): if it already exists, someone else sent it.
   try {
@@ -37,18 +39,40 @@ export async function sendChallengeReminderOnce(args: {
     throw err;
   }
 
+  const chatId = toChatId(whatsapp);
+  const text = renderTemplate(template, contactInfo);
   try {
-    const text = renderTemplate(template, contactInfo);
-    const result = await sendTextHumanized({ chatId: toChatId(whatsapp), text });
+    const result = await sendTextHumanized({ chatId, text });
     await db.challengeReminderLog.update({
       where: { participantId_key: { participantId, key } },
       data: { wahaMessageId: result.id },
     });
+    await logWaSend({
+      category: 'reminder',
+      status: WaLogStatus.SENT,
+      chatId,
+      templateKey: key,
+      body: text,
+      wahaMessageId: result.id,
+      participantId,
+      productId: productId ?? null,
+    });
     return 'sent';
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     await db.challengeReminderLog.update({
       where: { participantId_key: { participantId, key } },
-      data: { error: err instanceof Error ? err.message : String(err) },
+      data: { error: message },
+    });
+    await logWaSend({
+      category: 'reminder',
+      status: WaLogStatus.FAILED,
+      chatId,
+      templateKey: key,
+      body: text,
+      error: message,
+      participantId,
+      productId: productId ?? null,
     });
     console.error(`[challenge-reminders] send failed participant=${participantId} key=${key}:`, err);
     return 'failed';
@@ -106,6 +130,7 @@ export async function processDueChallengeReminders(now: Date = new Date()): Prom
         key,
         template: tpl,
         contactInfo: c.contactInfo,
+        productId: c.productId,
       });
       if (outcome === 'sent') sent++;
       else if (outcome === 'failed') failed++;

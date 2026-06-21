@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.11.6 |
-| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) built (green) — pending VPS deploy + migration** |
+| Version | 0.12.0 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
-| Last updated | 2026-06-06 |
+| Last updated | 2026-06-22 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.12.0** (2026-06-22) — **WA Logs menu (slice D5) — BUILT.** New login-gated **WA Logs** page (`/admin/wa-logs`) — an audit trail of every **outbound** WhatsApp send: e-book + attachment **deliveries** and challenge **reminders** (incl. the `after_purchase` instant message + the `proof_received` auto-ack). Backed by a new immutable, FK-decoupled **`WaMessageLog`** table written **best-effort** (logging never blocks/fails a send) from `lib/wa-log.ts`, wired into `delivery.ts` (per `DeliveryItem`) and `challenge-reminders.ts` `sendChallengeReminderOnce` (per reminder). The page uses the standard `PageHeader`+`DataTable` (sort/search/paginate, CSV+PDF export) with **program / status / category / date-range** filters and a **Resend** action on `FAILED` delivery rows (reuses `POST /api/admin/deliveries/{id}/resend`). API `GET /api/admin/wa-logs` (`requireAdmin`). One-off backfill from existing `DeliveryItem`+`ChallengeReminderLog` via `npm run wa-logs:backfill` (idempotent, records the final per-row state). Inbound proof videos + the operator test-send are intentionally **out of scope** (decided 2026-06-22). New migration `20260622000000_add_wa_message_log`; resolves open Q#10. §20.13.
 - **0.11.6** (2026-06-08) — **Prime never-contacted recipients before sending (first-contact delivery fix).** Messages to a number that had **never messaged the WAHA account first** were accepted by the API (`status: PENDING`) but never delivered — WhatsApp's E2E encryption has no session for an unknown recipient. Both send paths (`sendFile`, `sendTextHumanized`) now call `primeRecipient(chatId)` first: WAHA's `GET /api/contacts/check-exists` (new `checkNumberExists` helper) performs the on-WhatsApp lookup that resolves the recipient + primes the encryption session, then a short **randomized delay** (`primeDelayMs`, 1500–3500ms) before the actual send. Best-effort — a failed/negative check never blocks the send. Pure helpers unit-tested. No schema/migration. §12.2.1.
 - **0.11.5** (2026-06-08) — **WAHA send logging can now be enabled in production.** The `[waha-send]` log (added in 0.11.4) was gated on `NODE_ENV==='development'`, so it never appeared on the prod container (`NODE_ENV=production`). It now also turns on when the **`WAHA_LOG_SENDS`** env var is truthy (`1`/`true`) — set it in the prod env/compose to debug live sends without rebuilding the image or changing `NODE_ENV`. Still off by default in prod (the per-send LID lookup is opt-in). §12.2.1.
 - **0.11.4** (2026-06-08) — **Dev-only WAHA send logging.** When `NODE_ENV=development`, every outbound WAHA message (`sendFile`, `sendText`) logs `[waha-send] <kind> chatId=<…@c.us> lid=<…@lid> response=<WAHA JSON>` — the LID is resolved best-effort via `resolvePhoneToLid`. No-op in production; never throws (LID lookup failure logs `-`). Aids debugging the `@c.us`↔`@lid` correlation. §12.2.1.
@@ -508,6 +509,30 @@ model ChallengeReminderLog {                          // idempotency log for sen
   participant   ChallengeParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
   @@unique([participantId, key])                     // each reminder at most once per participant
 }
+
+enum WaLogStatus { SENT FAILED }
+
+model WaMessageLog {                                  // outbound WhatsApp send audit (WA Logs, D5, §20.13)
+  id             String      @id @default(cuid())
+  category       String                               // "ebook" | "attachment" | "reminder"
+  status         WaLogStatus
+  chatId         String                               // recipient chatId ("…@c.us")
+  toPhone        String?                              // normalized digits when known
+  templateKey    String?                              // reminder trigger key (e.g. "after_purchase","h7")
+  fileName       String?                              // file sends — buyer-facing filename
+  bodyPreview    String?                              // truncated caption/text snippet
+  wahaMessageId  String?
+  error          String?                              // failure reason when status = FAILED
+  orderId        String?                              // plain ids, NO FK — durable audit, survives deletes
+  deliveryId     String?                              // delivery rows → Resend from the UI
+  deliveryItemId String?
+  participantId  String?
+  productId      String?                              // for the program filter
+  createdAt      DateTime    @default(now())
+  @@index([createdAt])
+  @@index([category, status])
+  @@index([productId])
+}
 ```
 
 ---
@@ -821,7 +846,7 @@ is where these programs are configured; the deferred Challenge plugs into them l
 7. ~~**What is a "Lead"?**~~ Every checkout submission (an `Order`, any status). **Purchase** = `Order.status = PAID`. No new table.
 8. ~~**What does "Active" count?**~~ Challenge-program participants — **depends on the deferred Challenge module (§15)**, so **Active / Conv. Rate Active** are rendered in the dashboard but **stubbed (0 / "—")** until that module is built. **Resolved (2026-06-06, D10):** the **Program** sidebar page + Leads Report dropdown are a **separate, real** concept (the sellable-e-book configuration, §20.11) — not the challenge. The dropdown is now **live** and filters report metrics by program/product.
 9. ~~**Dashboard login?**~~ **Multi-user username + password**, DB-backed sessions (`AdminUser` + `Session`).
-10. **WA Logs accuracy** `[OPEN]` — per-send-attempt timestamps are not stored today (only the `Delivery` row). A `DeliveryAttempt` audit table is recommended when the **WA Logs** page (slice D5) is built; dashboard v1 derives WA counts from `Delivery` status (§20.4).
+10. ~~**WA Logs accuracy?**~~ **Resolved (2026-06-22, D5).** Instead of the originally-floated `DeliveryAttempt` table, WA Logs is backed by a broader **`WaMessageLog`** audit table that records every **outbound** WhatsApp send (e-book/attachment deliveries **and** challenge reminders) at the moment it happens — written best-effort from `lib/wa-log.ts` so logging never blocks a send. Each send is one log row (`SENT`/`FAILED` + error + `wahaMessageId`), so per-event accuracy now exists going forward; a one-off backfill seeds the final per-row state of pre-existing deliveries/reminders. Dashboard §20.4 WA counts still derive from `Delivery` status (unchanged). Inbound capture + operator test-sends are out of scope. §20.13.
 
 **Challenge decisions (resolved 2026-06-06 — see §21):**
 11. ~~**How are proof videos captured?**~~ **Auto-capture via WAHA inbound webhook** (`/api/webhooks/waha`) into private `CHALLENGE_MEDIA_DIR`; admin verifies + enters the weight. (Alternatives: manual admin entry / both — rejected.)
@@ -1016,7 +1041,8 @@ sortable/searchable/paginated **DataTable** (TanStack Table) with CSV + PDF expo
 management (§20.11) · **§20.12** shared Card UI system.
 **Done:** **D11** Challenge module (§21) — Challenge Configuration + User/Active + WAHA inbound capture.
 **D12** Challenge WhatsApp automation (§21.8) — auto-create on PAID + hourly reminder cron + auto-elimination.
-Later, optional: **D4** Leads & Purchase list pages · **D5** WA Logs (+ `DeliveryAttempt` log) ·
+**D5** WA Logs (§20.13) — outbound WhatsApp send audit (`WaMessageLog`) + filters + Resend.
+Later, optional: **D4** Leads & Purchase list pages ·
 **D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
 per-table CSV/PDF export already ships in D3.1).
 
@@ -1107,8 +1133,8 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
 **UI (App Router):**
 - `GET /admin/login` — login form.
 - `GET /admin` — Leads Report (cards + 14-day table + filter bar). Auth-gated.
-- *(later)* `/admin/leads`, `/admin/purchases`, `/admin/active`, `/admin/wa-logs`, `/admin/program`,
-  `/admin/reports`, `/admin/settings`.
+- `GET /admin/wa-logs` — WA Logs (outbound send audit + filters + Resend). Auth-gated. §20.13.
+- *(later)* `/admin/leads`, `/admin/purchases`, `/admin/reports`.
 
 **API:**
 - `POST /api/admin/auth/login` — body `{ username, password }` → sets `admin_session` cookie; `200`/`401`.
@@ -1395,6 +1421,52 @@ ad-hoc card `<div>`s with their own widths (that produced the uneven Pengaturan 
    content-card shell — but they stay uniform with each other.
 
 Applied so far: **Pengaturan** (CORS + rate-limit cards now identical), **Program**, **Leads Report**.
+
+---
+
+### 20.13 WA Logs (slice D5) `[STABLE]`
+A login-gated **WA Logs** page (`/admin/wa-logs`, sidebar 💬) — an operator audit trail of every
+**outbound** WhatsApp send, so failures are visible and retriable in one place.
+
+**Scope (decided 2026-06-22 — see open Q#10):**
+- **In:** e-book + attachment **deliveries** (the transactional `sendFile` on PAID) and challenge
+  **reminders** (`sendTextHumanized`), including the instant `after_purchase` message and the
+  `proof_received` auto-ack. Categories: `ebook` · `attachment` · `reminder`.
+- **Out:** inbound proof videos (already in `ChallengeSubmission` / the Active menu) and the operator
+  **test-send** (`/api/admin/whatsapp/test`) — intentionally not logged.
+
+**Data model — `WaMessageLog` (new table, §9):** an **immutable, FK-decoupled** audit row per send
+(plain id columns, no foreign keys, so the log survives a delivery/participant delete). Fields:
+`category`, `status` (`WaLogStatus` = `SENT|FAILED`), `chatId`, `toPhone`, `templateKey`, `fileName`,
+`bodyPreview` (truncated caption/text), `wahaMessageId`, `error`, `orderId`, `deliveryId`,
+`deliveryItemId`, `participantId`, `productId`, `createdAt`. Indexed on `createdAt`, `(category,status)`,
+`productId`.
+
+**Writing — `lib/wa-log.ts` `logWaSend(...)`, best-effort:** every write is wrapped so a logging
+failure is swallowed (console-only) — **logging must never block or fail a send** (invariants #3/#14
+are unaffected). Call sites:
+- `lib/delivery.ts` — one log per `DeliveryItem` send, on success (`SENT`) and failure (`FAILED`).
+- `lib/challenge-reminders.ts` `sendChallengeReminderOnce` — one log per reminder (covers cron +
+  webhook `after_purchase` + `proof_received`); `productId` threaded from the call sites.
+Pure helpers `buildPreview` (whitespace-collapse + truncate) and `phoneFromChatId` are unit-tested.
+
+**API — `GET /api/admin/wa-logs`** (`requireAdmin`; cookie or bearer). Query filters: `status`,
+`category`, `programId` (→ `productId`), `from`/`to` (`YYYY-MM-DD`, WIB-inclusive bounds), `q` (matches
+`toPhone`/`chatId`/`wahaMessageId`/`fileName`/`templateKey`). Newest first, capped at 2000 rows
+(the table paginates/searches client-side). Delivery rows are enriched with their `orderCode` via a
+batched lookup.
+
+**UI — `components/admin/WaLogs.tsx`:** `PageHeader` + a filter row (program / status / category /
+date-from / date-to) + the shared `DataTable` (sortable, searchable, paginated; CSV + PDF export).
+Columns: Waktu · Tujuan · Kategori · Status (badge) · Detail (file/template + body preview) · Order ·
+Msg ID · Error · Aksi. **Resend** appears only on `FAILED` **delivery** rows (those carry a
+`deliveryId`) and reuses `POST /api/admin/deliveries/{id}/resend`, then reloads.
+
+**Backfill:** `npm run wa-logs:backfill` (`scripts/backfill-wa-logs.mjs`) seeds the table from existing
+`DeliveryItem` (SENT/FAILED) + `ChallengeReminderLog`. Idempotent (skips rows already represented).
+Records only the **final** per-row state that predated the table (pre-D5 retries weren't timestamped).
+
+**Deploy:** run migration `20260622000000_add_wa_message_log`, then optionally `wa-logs:backfill`.
 
 ---
 

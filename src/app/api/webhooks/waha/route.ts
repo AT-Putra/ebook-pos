@@ -210,6 +210,7 @@ export async function POST(req: NextRequest) {
         key: `proof_received:${messageId ?? kind}`,
         template: ackTpl,
         contactInfo: challenge.contactInfo,
+        productId: challenge.productId,
       }).catch(err => console.error(`${TAG} proof_received send error:`, err));
     }
   }

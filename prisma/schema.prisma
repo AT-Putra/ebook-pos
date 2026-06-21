@@ -259,6 +259,38 @@ model ChallengeReminderLog {
   @@unique([participantId, key]) // each reminder sent at most once per participant (idempotent)
 }
 
+// ── WA Logs (slice D5, §20.13) ─────────────────────────────────────────
+// Immutable audit log of every OUTBOUND WhatsApp send (e-book/attachment delivery +
+// challenge reminders). Decoupled from the source rows (no FK) so the audit trail
+// survives a delivery/participant delete. Written best-effort — logging never blocks a send.
+enum WaLogStatus {
+  SENT
+  FAILED
+}
+
+model WaMessageLog {
+  id             String      @id @default(cuid())
+  category       String // "ebook" | "attachment" | "reminder"
+  status         WaLogStatus
+  chatId         String // WAHA recipient chatId ("…@c.us")
+  toPhone        String? // normalized digits when known
+  templateKey    String? // reminder/template trigger key (e.g. "after_purchase", "h7")
+  fileName       String? // file sends — buyer-facing filename
+  bodyPreview    String? // short snippet of the caption/text (truncated)
+  wahaMessageId  String?
+  error          String? // failure reason when status = FAILED
+  orderId        String? // links (plain ids, no FK — durable audit)
+  deliveryId     String? // delivery rows → enables Resend from the UI
+  deliveryItemId String?
+  participantId  String?
+  productId      String? // for the program filter
+  createdAt      DateTime    @default(now())
+
+  @@index([createdAt])
+  @@index([category, status])
+  @@index([productId])
+}
+
 model ChallengeSubmission {
   id             String   @id @default(cuid())
   participantId  String

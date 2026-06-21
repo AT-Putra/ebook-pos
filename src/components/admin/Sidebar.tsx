@@ -8,7 +8,7 @@ const NAV = [
   { label: 'Leads', href: '/admin/leads', icon: '👥' },
   { label: 'Purchase', href: '/admin/purchases', icon: '🛒' },
   { label: 'Users / Active', href: '/admin/active', icon: '🔥', ready: true },
-  { label: 'WA Logs', href: '/admin/wa-logs', icon: '💬' },
+  { label: 'WA Logs', href: '/admin/wa-logs', icon: '💬', ready: true },
   { label: 'Program', href: '/admin/program', icon: '🎯', ready: true },
   { label: 'Challenge', href: '/admin/challenge', icon: '🏆', ready: true },
   { label: 'Laporan', href: '/admin/reports', icon: '📄' },

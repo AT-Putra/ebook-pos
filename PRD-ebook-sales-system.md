@@ -37,7 +37,8 @@
   **token is a server-only env var** (`FONNTE_TOKEN`, invariant #6 — never entered/stored in the DB or sent
   to the browser), the settings GET only reports whether it is configured. New migration
   `20260624000000_add_messaging_config`; new optional env `FONNTE_TOKEN` + `FONNTE_WEBHOOK_SECRET` (§8).
-  Caveat: **Fonnte caps an attachment at 4 MB** — a larger e-book fails the Fonnte send (recorded, retried)
+  Caveat: **Fonnte caps an attachment at 10 MB** ([file-limitation docs](https://docs.fonnte.com/file-limitation/))
+  — a larger e-book fails the Fonnte send (recorded, retried)
   and the §23 email fallback covers the buyer. Invariant #5/#13/#14 reworded to be engine-aware. §24.
 - **0.15.0** (2026-06-22) — **Email fallback delivery (slice D14) — BUILT.** When a WhatsApp delivery
   item fails, the e-book + every attachment is **also** emailed to the buyer (best-effort, idempotent —
@@ -1985,7 +1986,8 @@ all current behaviour: priming, LID resolution, `[waha-send]` logging). **Zero w
 - **Text:** form-urlencoded `{ target, message, typing: true, delay }`. `target` = the bare `628…` number.
 - **File:** `multipart/form-data` `{ target, file: <binary Blob>, filename, message: <caption>, typing }`.
   The file is the **binary** read from the private `EBOOK_FILES_DIR` — **never** the public `url` param
-  (invariant #4 / #5). **Fonnte caps a file at 4 MB**; a larger file fails the send (recorded + retried),
+  (invariant #4 / #5). **Fonnte caps a file at 10 MB** (https://docs.fonnte.com/file-limitation/); a larger
+  file fails the send (recorded + retried),
   and the §23 email fallback delivers the e-book instead.
 - **Response:** `{ status: true, id: ["…"], detail, … }` on success; `{ status: false, reason }` on failure.
   The adapter throws on `status !== true` so `delivery.ts`/reminders treat it exactly like a WAHA failure.
@@ -2034,7 +2036,7 @@ status → `proof_received` ack) is extracted to **`lib/challenge-inbox.ts`** an
       is unset) with no side effects; inbound is idempotent across duplicate deliveries.
 - [ ] Selecting Fonnte without `FONNTE_TOKEN` surfaces a clear config warning in the UI and a clear send
       error (no silent partial send); the Fonnte token is never sent to the browser or stored in the DB.
-- [ ] A Fonnte send failure (incl. the >4 MB cap) is recorded and retried exactly like a WAHA failure, and
+- [ ] A Fonnte send failure (incl. the >10 MB cap) is recorded and retried exactly like a WAHA failure, and
       the §23 email fallback still fires.
 - [ ] Pure helpers (Fonnte payload/response parsing, `MessagingConfig` engine resolution, inbound
       idempotency-key derivation) are unit-tested.

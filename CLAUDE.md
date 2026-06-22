@@ -18,7 +18,7 @@ done, idempotent, and recoverable.
 - **Switchable WhatsApp engine (D15, §24): WAHA (default) ↔ Fonnte** — chosen in Pengaturan
   (`MessagingConfig` singleton). WAHA = self-hosted, base64 file payload, `…@c.us`, humanized sendSeen/typing
   sequence + priming + LID resolution. Fonnte = `https://api.fonnte.com/send`, `Authorization: <FONNTE_TOKEN>`,
-  bare `628…` target, binary multipart `file` (4 MB cap), server-side `typing`/`delay`. Both HTTPS, never a
+  bare `628…` target, binary multipart `file` (10 MB cap), server-side `typing`/`delay`. Both HTTPS, never a
   public file URL (inv. #4/#5). Resolve the active engine via `lib/messaging.ts` `getWaEngine()`
 - `nodemailer` over Gmail SMTP (App Password) — **email fallback** for failed WA delivery (D14, §23)
 - Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host

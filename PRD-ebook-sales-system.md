@@ -6,14 +6,27 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.14.2 |
-| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) built (green) — pending VPS deploy + migration** |
+| Version | 0.15.0 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.15.0** (2026-06-22) — **Email fallback delivery (slice D14) — BUILT.** When a WhatsApp delivery
+  item fails, the e-book + every attachment is **also** emailed to the buyer (best-effort, idempotent —
+  once per order via `Delivery.emailFallbackSentAt`), in **parallel** with the normal WhatsApp retry
+  (which is byte-for-byte unchanged; WhatsApp stays the primary channel and keeps retrying on its backoff
+  schedule). Trigger = any item failing on an `attemptDelivery` pass; the buyer gets a single email with
+  the **complete** file set read from the private `EBOOK_FILES_DIR` (binary attachment, never a URL —
+  invariant #4). Provider = **Gmail SMTP + App Password** via **`nodemailer`**, isolated behind a new
+  `lib/email.ts` (`isEmailConfigured`, pure `buildEbookEmail`, `sendEbookEmail`) so it can be swapped for
+  a transactional service later. Off unless `EMAIL_FALLBACK_ENABLED=true` + `GMAIL_USER`/`GMAIL_APP_PASSWORD`
+  set (new optional env, §8). A failed email is recorded (`emailFallbackError`) and retried by the cron
+  until it succeeds (within the WhatsApp attempt window); it never blocks/fails a WhatsApp send. New
+  migration `20260623000000_add_email_fallback` (`Delivery` gains `emailFallbackSentAt`/`emailFallbackError`/
+  `emailFallbackAttempts`). New dep `nodemailer` (+ `@types/nodemailer`). Resolves open Q#3. §23.
 - **0.14.2** (2026-06-22) — **Active / Conv. Rate Active 14-day series reworked to per-day event semantics** (owner feedback). The columns must be recorded the same way as Leads/Purchase — on the day the event happens — not as a running cumulative window. `getActiveSeries(dates, productId?)` now counts **Active** as a per-day event: each participant is bucketed on the single WIB day of their `startAt` (when they became active), so a day is non-zero only when a new participant entered Active (most days 0). Per-day **Conv. Rate Active** = active ÷ purchases of the **same day** (mirrors Conv. Rate = purchase ÷ leads), computed in `getReport`. Replaces the 0.14.1 window/cumulative draft. Pure `bucketActiveByDay(startDays)` extracted + unit-tested. Image rebuild only. §20.4.
 - **0.14.1** (2026-06-22) — **Leads Report 14-day series: Active / Conv. Rate Active columns now filled.** They previously rendered "—" because `RUNNING` was treated as a snapshot-only value. (Superseded by 0.14.2, which switched the per-day definition from a RUNNING-window count to a `startAt` event count.) §20.4.
 - **0.14.0** (2026-06-22) — **User management (slice D6) — BUILT.** Admin-account CRUD added as a **Pengguna (Admin)** card inside **Pengaturan** (`/admin/settings`) — the operator can **add** an admin, **rename** one, **reset** a password, and **activate/deactivate** an account (no hard delete; deactivation revokes that user's sessions). **No schema change** — `AdminUser` already carried `username`/`name`/`passwordHash`/`isActive`/`lastLoginAt`. New APIs `GET`+`POST /api/admin/users` and `PATCH /api/admin/users/{id}` (all `requireAdmin`). Guards: usernames are unique (409 on collision), passwords are scrypt-hashed (`lib/password.ts`, never returned to the client / never logged), and a user **cannot deactivate themselves or the last remaining active admin** (prevents lockout). New `currentAdminUser(req)` helper in `lib/auth.ts` (resolves the cookie session's user; bearer callers have none). Pure `lib/admin-users.ts` (zod `createUserSchema`/`updateUserSchema` + `serializeAdminUser` + `deactivationBlock` guard) is unit-tested. UI `components/admin/UserManager.tsx`. Deploy = image rebuild only (no migration/env/cron/volume). The **Purchase** menu (PAID-only) and **Laporan** export page (D7) remain intentionally **not built** — the operator uses the Leads status filter and the per-table CSV/PDF export instead. **Also in this release: the `Active` / `Conv. Rate Active` KPIs are now LIVE** (resolves open Q#15) — `getActiveSnapshot(productId?)` in `lib/report.ts` returns `ReportData.snapshot` (`active` = current `RUNNING` `ChallengeParticipant` count; `convRateActive` = active ÷ cumulative PAID orders, program-scoped), surfaced on the real-time KPI cards. They are a live snapshot (current state), so the 14-day series table's Active columns stay "—". §20.15, §20.4.
@@ -152,6 +165,8 @@ Acceptance criteria are written as testable statements. `[ ]` = must pass before
 - [ ] Backoff schedule is exponential (e.g., 1m, 5m, 15m, 1h, 6h) up to `maxAttempts` (default 5).
 - [ ] After `maxAttempts`, status becomes terminal `FAILED` and the order is flagged for operator attention.
 - [ ] Processing is concurrency-safe (a delivery already `PROCESSING`/`SENT` is not picked up again).
+- [ ] **Email fallback (D14, §23):** when any item fails on a delivery pass, the e-book + attachments are
+      **also** emailed to the buyer (best-effort, idempotent, once per order) — WhatsApp retry is unchanged.
 
 ### F6 — Operator visibility & manual re-send
 - [ ] `GET /api/admin/orders` (admin-protected) lists orders with status, customer, delivery state, tracking ID; supports filter by status.
@@ -237,6 +252,12 @@ CHALLENGE_MEDIA_DIR=/data/challenge-media  # inbound proof videos; private, outs
 # Security
 ADMIN_TOKEN=          # bearer token for machine access to /api/admin/* (cron, scripts)
 CRON_SECRET=          # only needed if you trigger retries via an HTTP cron endpoint
+
+# Email fallback (D14, §23) — all optional; the fallback is OFF unless EMAIL_FALLBACK_ENABLED=true + creds set
+EMAIL_FALLBACK_ENABLED=false                 # true => email the e-book when a WhatsApp send fails
+GMAIL_USER=                                  # sending Gmail address (also the SMTP username)
+GMAIL_APP_PASSWORD=                          # 16-char Gmail App Password (NOT the account password; needs 2-Step Verification)
+EMAIL_FROM=                                  # optional From: header; defaults to GMAIL_USER
 ```
 
 > **Dashboard auth (§20)** uses DB-backed sessions, not an env secret: the opaque session token
@@ -805,6 +826,8 @@ LID lookup is best-effort and never throws (logs `-` on failure).
 | Invalid WhatsApp number | Rejected at checkout (`422`); if discovered at send time → delivery FAILED + operator alert + manual resend with corrected number |
 | WAHA session down | Send fails → retried by cron; operator alerted; resumes when the number is re-linked in the provider dashboard |
 | E-book exceeds provider's request-size limit | Send rejected; mark delivery FAILED + operator alert (file too large for base64 over this provider) |
+| WhatsApp item fails + email configured (D14) | E-book + attachments also emailed to the buyer (best-effort, once per order); WhatsApp retry continues unchanged |
+| Email fallback send fails (e.g. Gmail down / >25 MB) | `emailFallbackError` recorded, `emailFallbackSentAt` stays null; retried on the next delivery cron pass; never blocks/fails the WhatsApp send |
 | 3rd-party WAHA rate-limited / 5xx | Treated as transient; retried with backoff up to `maxAttempts` |
 | `WAHA_BASE_URL` is not `https://` | App refuses to start / refuses to send (no cleartext API key or e-book) |
 | Midtrans create fails at checkout | Return `502`; order not left in a payable-but-broken state |
@@ -841,7 +864,11 @@ is where these programs are configured; the deferred Challenge plugs into them l
 
 1. ~~**Single product or catalog?**~~ **Resolved (2026-06-04):** single product for v1 (slug `lose-weight-challenge-1st-edition`, IDR 75,000). Schema stays catalog-capable. **Updated (2026-06-06, D10 §20.11):** the dashboard now manages **multiple programs** (a small catalog) — each program is a `Product` with its own slug, PDF, price, and sales window. The buyer flow stays **per-slug** (one landing page per program).
 2. **Tracking ID semantics** — affiliate code, ad-campaign id, or both? Affects future reporting (not behaviour now).
-3. **Email fallback** — if WhatsApp delivery permanently fails, should the system also email the e-book? (Currently out of scope.)
+3. ~~**Email fallback**~~ **Resolved (2026-06-22, D14 §23).** Yes — when a WhatsApp delivery item fails,
+   the e-book + attachments are **also** emailed to the buyer (best-effort, idempotent, once per order),
+   in **parallel** with (not instead of) the normal WhatsApp retry. Provider = **Gmail SMTP via App
+   Password** (`nodemailer`), isolated behind `lib/email.ts` so it can be swapped later. Off unless
+   `EMAIL_FALLBACK_ENABLED=true` + creds set. §23.
 4. **Data retention period** for buyer PII (UU PDP).
 5. **3rd-party WAHA provider** — which provider, its **max request body size** (limits e-book size for base64), whether it supports **IP allowlisting**, its auth header, and whether a data-processing agreement is needed. **(D10 note):** the upload endpoint caps each PDF at **32 MB** (`MAX_UPLOAD_BYTES`); base64 makes that ~43 MB to WAHA, so confirm the provider allows it, and set Caddy `request_body { max_size 40MB }` on the proxied app so the upload itself isn't rejected at the edge.
 6. ~~**Checkout failure policy?**~~ **Resolved (2026-06-04):** mark the order **FAILED** (not delete) — preserves the audit trail.
@@ -1828,3 +1855,70 @@ invariant #10 — never `*`). A missing origin = browser blocks the request, ord
   require it; do not revert to "opsional".
 - Static assets only — not built or served by the app; reuse the existing `/api/checkout` contract, so
   no schema or server change was needed. Setup steps: `landing-pages/README.md`.
+
+---
+
+## 23. Email fallback delivery (slice D14) `[DRAFT]`
+
+When WhatsApp delivery fails, the buyer's e-book (and every attachment) is **also** emailed to them as
+a fallback, so a flaky WAHA send never leaves a paying customer empty-handed. The WhatsApp flow is
+**unchanged** — same atomic claim, same backoff/retry, same exactly-once per file (invariant #3). Email
+is purely additive and **best-effort**: it never blocks, delays, or fails a WhatsApp send, and a missing
+email configuration makes the whole feature a silent no-op.
+
+### 23.1 Trigger (decided 2026-06-22 — parallel)
+Inside `attemptDelivery`, **after** the per-item WhatsApp loop, if **any** item failed on this pass the
+system attempts the email fallback **immediately** (in parallel with WhatsApp, which is simultaneously
+rescheduled for its next retry). The buyer therefore gets the e-book by email within seconds of the
+first WhatsApp failure, while WhatsApp keeps retrying on its normal schedule. Accepted consequence: a
+buyer may receive the file on **both** channels (e.g. WhatsApp later succeeds, or only an attachment had
+failed) — completeness is preferred over avoiding a duplicate.
+
+### 23.2 What is sent
+**One email** with the **complete** file set (the e-book + every attachment, same snapshot as the
+`DeliveryItem` rows), regardless of which individual item failed — the buyer gets a self-contained copy
+in a single message. Files are read from the private `EBOOK_FILES_DIR` (invariant #4) and attached as
+binary content (never a public URL). Indonesian subject/body addressed to the buyer by name, explaining
+the e-book is sent by email because the WhatsApp delivery hit a problem.
+
+### 23.3 Idempotency & retry
+- One email per order. A `Delivery.emailFallbackSentAt` timestamp guards it; once set, no further email
+  is attempted. Because `attemptDelivery` holds the `PROCESSING` claim, only one caller is ever in the
+  fallback path at a time — no extra locking is needed.
+- If the **email send itself** fails, `emailFallbackSentAt` stays null and `emailFallbackError` records
+  the reason; the next delivery retry (cron) re-attempts the email too, until it succeeds. Email
+  attempts are thus bounded by WhatsApp's `maxAttempts` window (no separate schedule).
+- `emailFallbackAttempts` counts tries (audit only).
+
+### 23.4 Provider — Gmail SMTP (decided 2026-06-22)
+`lib/email.ts` wraps **`nodemailer`** over Gmail SMTP (`smtp.gmail.com:465`, secure). Auth = a Gmail
+**App Password** (requires 2-Step Verification on the account; legacy "less secure apps" is gone). The
+transport is built lazily from env. The provider is isolated behind `sendEbookEmail()` so it can later be
+swapped for a transactional service (Resend/SES/Brevo/Postmark) without touching `delivery.ts`.
+
+**Known Gmail limits (operator must be aware):** ~500 recipients/day (free Gmail), 25 MB max attachment
+(our PDFs cap at 32 MB each — a large e-book may exceed Gmail's email limit even though WhatsApp accepted
+it; such a send fails and is recorded in `emailFallbackError`), and the `From:` is locked to the Gmail
+address. These are acceptable for a low-volume fallback; revisit if volume grows.
+
+### 23.5 Configuration (env, all optional)
+The feature is **off unless configured**. `isEmailConfigured()` is true only when enabled + creds set.
+- `EMAIL_FALLBACK_ENABLED` — `true` to turn the fallback on (default off).
+- `GMAIL_USER` — the sending Gmail address (also the SMTP username).
+- `GMAIL_APP_PASSWORD` — the 16-char App Password (server-only secret, never logged/returned — inv. #6).
+- `EMAIL_FROM` — optional `From:` header (e.g. `"Toko E-book" <you@gmail.com>`); defaults to `GMAIL_USER`.
+
+### 23.6 Data model (see §9)
+`Delivery` gains `emailFallbackSentAt DateTime?`, `emailFallbackError String?`,
+`emailFallbackAttempts Int @default(0)`. Migration `20260623000000_add_email_fallback`. No new table.
+
+### 23.7 Acceptance criteria
+- [ ] On a WhatsApp delivery where at least one item fails, with email configured, exactly one email
+      carrying the e-book + all attachments is sent to the buyer's address.
+- [ ] The WhatsApp retry/backoff/exactly-once behaviour is byte-for-byte unchanged.
+- [ ] The email is sent at most once per order across any number of retries (`emailFallbackSentAt` guard).
+- [ ] If email is not configured (or `EMAIL_FALLBACK_ENABLED` is off), delivery behaves exactly as before
+      and no email is attempted.
+- [ ] An email-send failure is recorded (`emailFallbackError`) and never fails/blocks the WhatsApp send;
+      it is retried by the cron until it succeeds (within the WhatsApp attempt window).
+- [ ] Pure helpers (`isEmailConfigured` decision, `buildEbookEmail` subject/body) are unit-tested.

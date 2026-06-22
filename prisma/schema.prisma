@@ -123,6 +123,11 @@ model Delivery {
   wahaMessageId String?
   lastError     String?
   sentAt        DateTime?
+  // Email fallback (D14, §23): the e-book is also emailed when a WhatsApp send fails.
+  // Idempotent — once emailFallbackSentAt is set, no further email is attempted.
+  emailFallbackSentAt    DateTime?
+  emailFallbackError     String?
+  emailFallbackAttempts  Int       @default(0)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   order         Order          @relation(fields: [orderId], references: [id])

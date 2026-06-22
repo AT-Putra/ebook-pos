@@ -52,6 +52,13 @@ export async function readEbookAsBase64(relativeFilePath: string): Promise<strin
   return buffer.toString('base64');
 }
 
+/** Resolves and reads an e-book/attachment from the private EBOOK_FILES_DIR as raw bytes.
+ *  Used by the email fallback (D14) to attach files as binary content (never a URL). */
+export async function readEbookAsBuffer(relativeFilePath: string): Promise<Buffer> {
+  const safeAbs = resolveSafePath(relativeFilePath);
+  return fs.readFile(safeAbs);
+}
+
 /** Keeps just the basename of an upload's name, stripped of control/separator chars.
  *  This is only the buyer-facing label; the stored file uses a random name. */
 function sanitizeFileName(name: string): string {

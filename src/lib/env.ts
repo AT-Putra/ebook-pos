@@ -21,6 +21,15 @@ const envSchema = z.object({
   CHALLENGE_MEDIA_DIR: z.string().optional().default('/data/challenge-media'), // private proof videos (§21)
   ADMIN_TOKEN: z.string().min(1),
   CRON_SECRET: z.string().min(1),
+  // Email fallback (D14, §23) — all optional; the fallback is OFF unless enabled + creds set.
+  EMAIL_FALLBACK_ENABLED: z
+    .string()
+    .optional()
+    .default('false')
+    .transform(v => v === 'true' || v === '1'),
+  GMAIL_USER: z.string().optional().default(''),
+  GMAIL_APP_PASSWORD: z.string().optional().default(''),
+  EMAIL_FROM: z.string().optional().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,9 +1,10 @@
 import { DeliveryStatus, WaLogStatus } from '@prisma/client';
 import { db } from './db';
-import { readEbookAsBase64 } from './files';
+import { readEbookAsBase64, readEbookAsBuffer } from './files';
 import { sendFile } from './waha';
 import { toChatId } from './phone';
 import { logWaSend } from './wa-log';
+import { isEmailConfigured, sendEbookEmail } from './email';
 
 export const BACKOFF_MINUTES = [1, 5, 15, 60, 360]; // exponential backoff schedule
 
@@ -181,6 +182,17 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
     }
   }
 
+  // Email fallback (D14, §23): if any file failed over WhatsApp on this pass, also email the
+  // complete set to the buyer — in parallel with the WhatsApp retry, which proceeds unchanged
+  // below. Best-effort: never blocks/fails the WhatsApp delivery, idempotent (once per order).
+  if (anyFailed) {
+    try {
+      await maybeSendEmailFallback(deliveryId);
+    } catch (err) {
+      console.error(`[email-fallback] unexpected error for delivery ${deliveryId}:`, err);
+    }
+  }
+
   // Roll the per-item results up to the Delivery.
   const fresh = await db.deliveryItem.findMany({ where: { deliveryId } });
 
@@ -220,6 +232,68 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
     console.error(
       `[delivery] Terminal failure for delivery ${deliveryId} (order ${order.orderCode}): ${lastError}`,
     );
+  }
+}
+
+/**
+ * Email fallback (D14, §23): emails the buyer the complete file set (e-book + all attachments)
+ * when a WhatsApp delivery item has failed. Best-effort and idempotent — sends at most once per
+ * order (guarded by `emailFallbackSentAt`); a send failure is recorded and retried on the next
+ * delivery pass. A no-op unless the email fallback is configured (env). Never re-throws.
+ */
+async function maybeSendEmailFallback(deliveryId: string): Promise<void> {
+  if (!isEmailConfigured()) return;
+
+  const delivery = await db.delivery.findUnique({
+    where: { id: deliveryId },
+    include: {
+      items: { orderBy: { sortOrder: 'asc' } },
+      order: { include: { customer: true, product: true } },
+    },
+  });
+  if (!delivery) return;
+  if (delivery.emailFallbackSentAt) return; // already emailed — idempotent
+
+  const { order, items } = delivery;
+  const { customer, product } = order;
+  const to = customer.email?.trim();
+  if (!to) return; // no address to send to (shouldn't happen — email is required at checkout)
+
+  try {
+    // Send the COMPLETE set regardless of which item failed, so the buyer gets a self-contained copy.
+    const attachments = await Promise.all(
+      items.map(async item => ({
+        filename: item.fileName,
+        content: await readEbookAsBuffer(item.filePath),
+      })),
+    );
+    const result = await sendEbookEmail({
+      to,
+      customerName: customer.name,
+      productName: product.name,
+      attachments,
+    });
+    await db.delivery.update({
+      where: { id: deliveryId },
+      data: {
+        emailFallbackSentAt: new Date(),
+        emailFallbackError: null,
+        emailFallbackAttempts: { increment: 1 },
+      },
+    });
+    console.log(
+      `[email-fallback] sent for delivery ${deliveryId} (order ${order.orderCode}) → ${to} (messageId=${result.messageId})`,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await db.delivery.update({
+      where: { id: deliveryId },
+      data: {
+        emailFallbackError: message,
+        emailFallbackAttempts: { increment: 1 },
+      },
+    });
+    console.error(`[email-fallback] FAILED for delivery ${deliveryId}: ${message}`);
   }
 }
 

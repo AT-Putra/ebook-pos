@@ -16,6 +16,7 @@ done, idempotent, and recoverable.
 - Zod 4 for input + env validation
 - Midtrans Snap (payments) + webhook
 - 3rd-party WAHA over HTTPS (WhatsApp delivery), base64 file payload
+- `nodemailer` over Gmail SMTP (App Password) — **email fallback** for failed WA delivery (D14, §23)
 - Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host
 - Dashboard tables: TanStack Table (`@tanstack/react-table`); export: `jspdf` + `jspdf-autotable` (PDF), `Blob` (CSV)
 
@@ -36,7 +37,7 @@ done, idempotent, and recoverable.
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
 - `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `Card`/`CardStack`/`PageHeader` (shared layout primitives — §20.12), `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload), `WaLogs` (D5: outbound WA send audit table + filters + Resend), `LeadsList` (D4: log of every checkout submission + filters + Detail/Resend), `UserManager` (D6: admin-account add/rename/reset-password/(de)activate card)
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`, `challenge-reminders`, `wa-log`, `leads`, `admin-users`)
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`, `challenge-reminders`, `wa-log`, `leads`, `admin-users`, `email`)
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit + **admin user mgmt** (D6, §20.15, `UserManager`); APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`, `/api/admin/users[/id]`
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
 - `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`; templates card has a **test-send**: per-template "Kirim tes" → `POST /api/admin/whatsapp/test`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`, `/whatsapp/test`. `lib/challenge.ts` = pure day/phase/%loss/status logic + `computeDueReminders` (D12). **D12 automation:** Midtrans PAID auto-creates a participant (`AWAITING_INITIAL`) **and instantly sends the `after_purchase` instructions** (via `sendChallengeReminderOnce`, fire-and-forget, idempotent — not waiting for the cron); cron `/api/cron/challenge-reminders` (hourly, `isCron`) sends the rest of the reminder schedule once each (idempotent via `ChallengeReminderLog`) + auto-eliminates; `final_received` sent on verify-final. Reminder send = shared `sendChallengeReminderOnce` (reserve-then-send) used by both webhook + cron. Rules: `docs/challenge-rules.md`.
@@ -141,6 +142,12 @@ backfill via `npm run wa-logs:backfill`. Deploy needs only the migration (no new
 no schema change (rebuild image only).
 **Built, pending deploy: D6 User management** (§20.15) — admin-account CRUD card in Pengaturan
 (add/rename/reset-password/(de)activate); APIs `/api/admin/users[/id]`; no schema change (rebuild only).
+**Built, pending deploy: D14 Email fallback** (§23) — when a WhatsApp delivery item fails, the e-book +
+attachments are **also** emailed to the buyer (best-effort, idempotent once/order via
+`Delivery.emailFallbackSentAt`), **in parallel** with the unchanged WA retry. Gmail SMTP + App Password
+via `nodemailer`, isolated behind `lib/email.ts`; wired into `delivery.ts` `maybeSendEmailFallback`.
+Off unless `EMAIL_FALLBACK_ENABLED=true` + `GMAIL_USER`/`GMAIL_APP_PASSWORD` set. Deploy needs the
+migration `20260623000000_add_email_fallback`, the new env, and `npm install` (new dep `nodemailer`).
 **Dropped (owner 2026-06-22): D4 Purchase half (PAID-only) + D7 Laporan export page** — Leads' `Lunas`
 filter + per-table CSV/PDF export cover them; their sidebar items were removed.
 Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is updated.

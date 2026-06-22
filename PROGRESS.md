@@ -6,10 +6,10 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.13.0 |
+| PRD version in sync with | 0.15.0 |
 | Last updated | 2026-06-22 |
-| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list built (green) — pending VPS deploy** |
-| Repo working state | green (167 tests, build passes, tsc clean) |
+| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback built (green) — pending VPS deploy** |
+| Repo working state | green (build passes, tsc clean) |
 
 ## How to run
 - Install: `npm install`
@@ -39,7 +39,8 @@
 - [x] **D12 — Challenge WA automation** (§21.8): auto-create participant on PAID (`AWAITING_INITIAL`); hourly cron `/api/cron/challenge-reminders` sends the rules' reminder schedule (idempotent via `ChallengeReminderLog`) + auto-eliminates (H+15 / day-105); `final_received` on verify-final; `lib/challenge.ts` `computeDueReminders`. *(built green; Active KPI wiring still deferred — open Q#15)*
 - [x] **D5 — WA Logs** (§20.13): new `WaMessageLog` audit table (migration `20260622000000_add_wa_message_log`) of every **outbound** WA send (e-book/attachment delivery + challenge reminders) written best-effort from `lib/wa-log.ts` (wired into `delivery.ts` + `challenge-reminders.ts`); `/admin/wa-logs` (`WaLogs.tsx`, PageHeader+DataTable, filters program/status/category/date + **Resend** on FAILED delivery rows); API `GET /api/admin/wa-logs`; backfill `npm run wa-logs:backfill`. Inbound + test-send out of scope. Resolves open Q#10. *(built green: 163 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D4 (Leads half) — Leads list** (§20.14): `/admin/leads` (`LeadsList.tsx`) = log of every checkout submission (any status); API `GET /api/admin/leads` (program/status/date/search filters); DataTable + CSV/PDF export; per-row **Detail** modal + **Resend** (optional corrected WA) reusing `/api/admin/deliveries/[id]/resend`; pure `lib/leads.ts` (`formatIdr`/`leadStatusMeta`, tested). No schema change. PII shown in full. *(built green: 167 tests + tsc + build)*
-- [ ] (later) D4 (Purchase half) PAID-only list · D6 user mgmt · D7 Laporan export page
+- [x] **D14 — Email fallback delivery** (§23): when any item fails on a WhatsApp delivery pass, the e-book + attachments are **also** emailed to the buyer (best-effort, idempotent once/order via `Delivery.emailFallbackSentAt`), in **parallel** with the unchanged WhatsApp retry. Provider = **Gmail SMTP + App Password** via `nodemailer`, isolated behind `lib/email.ts` (`isEmailConfigured`, pure `buildEbookEmail`, `sendEbookEmail`); wired into `delivery.ts` (`maybeSendEmailFallback`); `lib/files.ts` gains `readEbookAsBuffer`. Off unless `EMAIL_FALLBACK_ENABLED=true` + `GMAIL_USER`/`GMAIL_APP_PASSWORD` set. New migration `20260623000000_add_email_fallback`. New dep `nodemailer` (+ `@types/nodemailer`). Resolves open Q#3. *(built green; pending VPS deploy + migration)*
+- [ ] (later) D4 (Purchase half) PAID-only list · D7 Laporan export page
 
 ## In progress
 - **D11 Challenge module — BUILT (green), not yet deployed.** All steps below done. 141 tests + tsc +

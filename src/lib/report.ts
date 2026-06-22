@@ -6,8 +6,8 @@ export type DayMetrics = {
   purchase: number;
   convRate: number;   // 0–1, two decimal places max
   revenue: number;    // IDR integer
-  active: number;     // not day-bucketed — see ActiveSnapshot; left 0 in the per-day series
-  convRateActive: number; // not day-bucketed — left 0 in the per-day series
+  active: number;     // participants RUNNING on this WIB day (reconstructed window — getActiveSeries)
+  convRateActive: number; // active ÷ cumulative PAID purchases as of this day
   totalWa: number;
   sukses: number;
   failed: number;
@@ -104,6 +104,67 @@ export async function getActiveSnapshot(productId?: string): Promise<ActiveSnaps
   return { active, purchases, convRateActive: rate(active, purchases) };
 }
 
+/**
+ * Per-day reconstruction of Active / Conv.Rate Active for the historical series.
+ * Unlike the live snapshot, this rebuilds each past day from real participant
+ * timestamps — NOT fabricated:
+ *   - A participant is "active" on a WIB day D if their RUNNING window covers D.
+ *   - The window opens at `startAt` (initial proof received = challenge day 1).
+ *   - It closes when they leave RUNNING: still-RUNNING participants are ongoing
+ *     (open window); otherwise the close is `finalSubmittedAt` (submitted final)
+ *     or, lacking that (e.g. eliminated/DROPPED), `updatedAt` as the best
+ *     available approximation of when they stopped running.
+ *   - Participants that never started (startAt null) are never counted.
+ * Conv.Rate Active per day = active ÷ cumulative PAID purchases as of that day.
+ * Returns a map keyed by WIB date string so getReport can merge it into series.
+ */
+// A participant's RUNNING window as WIB date strings; endDay null = still ongoing.
+export type ActiveWindow = { startDay: string; endDay: string | null };
+
+/** Pure: how many windows cover WIB day `d` and the active-conversion vs. the
+ *  cumulative purchases as of `d`. YYYY-MM-DD strings compare lexically. */
+export function activeForDay(
+  windows: ActiveWindow[],
+  paidDays: string[],
+  d: string,
+): { active: number; convRateActive: number } {
+  const active = windows.filter(
+    w => w.startDay <= d && (w.endDay === null || w.endDay >= d),
+  ).length;
+  const purchases = paidDays.filter(pd => pd <= d).length;
+  return { active, convRateActive: rate(active, purchases) };
+}
+
+export async function getActiveSeries(
+  dates: string[],
+  productId?: string,
+): Promise<Map<string, { active: number; convRateActive: number }>> {
+  const result = new Map<string, { active: number; convRateActive: number }>();
+  if (dates.length === 0) return result;
+
+  const [participants, paidOrders] = await Promise.all([
+    db.challengeParticipant.findMany({
+      where: { startAt: { not: null }, ...(productId ? { challenge: { productId } } : {}) },
+      select: { startAt: true, status: true, finalSubmittedAt: true, updatedAt: true },
+    }),
+    db.order.findMany({
+      where: { status: 'PAID', paidAt: { not: null }, ...(productId ? { productId } : {}) },
+      select: { paidAt: true },
+    }),
+  ]);
+
+  // Reduce each participant to a [startDay, endDay] WIB-string window (endDay
+  // null = still running / ongoing).
+  const windows: ActiveWindow[] = participants.map(p => ({
+    startDay: toWibDateString(p.startAt!),
+    endDay: p.status === 'RUNNING' ? null : toWibDateString(p.finalSubmittedAt ?? p.updatedAt),
+  }));
+  const paidDays = paidOrders.map(o => toWibDateString(o.paidAt!));
+
+  for (const d of dates) result.set(d, activeForDay(windows, paidDays, d));
+  return result;
+}
+
 // Inclusive list of WIB date strings from `fromStr` to `toStr` (both YYYY-MM-DD).
 // Anchored on the +07:00 offset and stepped by whole days so the labels are
 // correct in WIB regardless of the server/container timezone (no setHours).
@@ -124,12 +185,19 @@ export async function getReport(
   productId?: string,
 ): Promise<ReportData> {
   const todayStr = toWibDateString(new Date());
+  const dates = buildDateSeries(fromStr, toStr);
 
-  const [today, snapshot, ...seriesDates] = await Promise.all([
+  const [today, snapshot, activeSeries, ...seriesDates] = await Promise.all([
     getDayMetrics(todayStr, productId),
     getActiveSnapshot(productId),
-    ...buildDateSeries(fromStr, toStr).map(d => getDayMetrics(d, productId)),
+    getActiveSeries(dates, productId),
+    ...dates.map(d => getDayMetrics(d, productId)),
   ]);
 
-  return { today, series: seriesDates, snapshot };
+  const series = seriesDates.map(m => {
+    const a = activeSeries.get(m.date);
+    return a ? { ...m, active: a.active, convRateActive: a.convRateActive } : m;
+  });
+
+  return { today, series, snapshot };
 }

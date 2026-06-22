@@ -95,9 +95,17 @@
 - **Active KPI — WIRED (green), open Q#15 resolved (2026-06-22).** `Active` / `Conv. Rate Active` KPI
   cards are now LIVE: `getActiveSnapshot(productId?)` in `lib/report.ts` → `ReportData.snapshot`
   (Active = current `RUNNING` `ChallengeParticipant` count; convRateActive = Active ÷ cumulative PAID
-  orders, program-scoped). Surfaced on the real-time KPI cards in `LeadsReport.tsx`; it's a **live
-  snapshot** so the 14-day table's Active columns stay "—" (no per-day status history). Exported `rate()`
+  orders, program-scoped). Surfaced on the real-time KPI cards in `LeadsReport.tsx`. Exported `rate()`
   helper, unit-tested. 181 tests + tsc + build green. PRD §20.4. Deploy = image rebuild only.
+- **Active / Conv. Rate Active — now FILLED in the 14-day series too (2026-06-22).** The two columns
+  in **Leads Report → Performa 14 Hari Terakhir** no longer render "—". New `getActiveSeries(dates,
+  productId?)` in `lib/report.ts` reconstructs each past WIB day from real participant timestamps
+  (NOT fabricated): a participant is Active on day D if their RUNNING window covers D — window opens at
+  `startAt` (initial proof = day 1) and closes at `finalSubmittedAt`/`updatedAt`, or stays open while
+  still `RUNNING`; per-day Conv. Rate Active = active ÷ cumulative PAID purchases as of D. Pure
+  `activeForDay(windows, paidDays, d)` extracted + unit-tested (5 new cases, 12 in report suite). The
+  TOTAL footer row keeps "—" for both (point-in-time counts don't sum). `LeadsReport.tsx` columns now
+  render the live values. 186 tests + tsc green. PRD §20.4. Deploy = image rebuild only.
 
 ## Next up
 - **Deploy D11+D12** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`

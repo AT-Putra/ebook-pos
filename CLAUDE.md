@@ -151,8 +151,13 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
   Metrics come from existing `Order`/`Delivery` — see §20.4 for exact, WIB-bucketed definitions.
 - **Active / Conv.Rate Active** KPIs: **LIVE since D6 (2026-06-22, §20.4)** — `getActiveSnapshot(productId?)`
   in `lib/report.ts` → `ReportData.snapshot` (Active = current `RUNNING` `ChallengeParticipant` count;
-  Conv.Rate Active = Active ÷ cumulative PAID orders, program-scoped). They are a **live snapshot** on the
-  real-time KPI cards only — the 14-day series table keeps "—" (no per-day status history; don't fabricate).
+  Conv.Rate Active = Active ÷ cumulative PAID orders, program-scoped). Shown as a **live snapshot** on the
+  real-time KPI cards. The **14-day series table also fills these columns** (since 2026-06-22) via
+  `getActiveSeries(dates, productId?)` — a per-day **reconstruction** from real timestamps (not fabricated):
+  a participant is Active on a WIB day if their RUNNING window covers it (opens at `startAt`; closes at
+  `finalSubmittedAt`/`updatedAt`, or stays open while still `RUNNING`); Conv.Rate Active per day = active ÷
+  cumulative PAID purchases as of that day. Pure `activeForDay()` is unit-tested. The TOTAL row keeps "—"
+  for both (per-day point-in-time counts don't sum).
 - **Program** is NOT the challenge — it is the sellable-e-book config (D10, §20.11): main e-book +
   optional **attachment PDFs** + sales window. The sidebar Program page and the Leads Report **Program
   dropdown are real/live** as of D10: the dropdown filters every metric by program/product

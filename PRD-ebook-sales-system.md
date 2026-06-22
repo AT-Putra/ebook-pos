@@ -6,14 +6,15 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.12.0 |
-| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) built (green) — pending VPS deploy + migration** |
+| Version | 0.13.0 |
+| Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
 | Build philosophy | **SLC** — Simple, Lovable, Complete |
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.13.0** (2026-06-22) — **Leads menu (slice D4, the Leads half) — BUILT.** New login-gated **Leads** page (`/admin/leads`) — a log of **every checkout submission** (an `Order`, **any status**; Lead = any submission per §20.2). No schema change — reads existing `Order`/`Customer`/`Delivery`. New API `GET /api/admin/leads` (`requireAdmin`) with **program / status / date-range / search** filters (search across order code, tracking id, name, email, WhatsApp; WIB date bounds; 5000-row cap). UI `LeadsList.tsx` = `PageHeader` + filter row + shared `DataTable` (sort/search/paginate, CSV+PDF export) with columns Waktu · Nama · WhatsApp · Email · Program/Produk · Jumlah · Status (badge) · Tracking · Pengiriman · Aksi. A per-row **Detail** modal shows the full order + delivery state and, for orders with a delivery, a **Resend** (optional corrected WhatsApp number) reusing `POST /api/admin/deliveries/{id}/resend`. PII (email/WhatsApp) shown in full (operator follow-up; decided 2026-06-22). Pure `lib/leads.ts` helpers (`formatIdr`, `leadStatusMeta`) unit-tested. The **Purchase** page (PAID-only) remains a later slice. §20.14.
 - **0.12.0** (2026-06-22) — **WA Logs menu (slice D5) — BUILT.** New login-gated **WA Logs** page (`/admin/wa-logs`) — an audit trail of every **outbound** WhatsApp send: e-book + attachment **deliveries** and challenge **reminders** (incl. the `after_purchase` instant message + the `proof_received` auto-ack). Backed by a new immutable, FK-decoupled **`WaMessageLog`** table written **best-effort** (logging never blocks/fails a send) from `lib/wa-log.ts`, wired into `delivery.ts` (per `DeliveryItem`) and `challenge-reminders.ts` `sendChallengeReminderOnce` (per reminder). The page uses the standard `PageHeader`+`DataTable` (sort/search/paginate, CSV+PDF export) with **program / status / category / date-range** filters and a **Resend** action on `FAILED` delivery rows (reuses `POST /api/admin/deliveries/{id}/resend`). API `GET /api/admin/wa-logs` (`requireAdmin`). One-off backfill from existing `DeliveryItem`+`ChallengeReminderLog` via `npm run wa-logs:backfill` (idempotent, records the final per-row state). Inbound proof videos + the operator test-send are intentionally **out of scope** (decided 2026-06-22). New migration `20260622000000_add_wa_message_log`; resolves open Q#10. §20.13.
 - **0.11.6** (2026-06-08) — **Prime never-contacted recipients before sending (first-contact delivery fix).** Messages to a number that had **never messaged the WAHA account first** were accepted by the API (`status: PENDING`) but never delivered — WhatsApp's E2E encryption has no session for an unknown recipient. Both send paths (`sendFile`, `sendTextHumanized`) now call `primeRecipient(chatId)` first: WAHA's `GET /api/contacts/check-exists` (new `checkNumberExists` helper) performs the on-WhatsApp lookup that resolves the recipient + primes the encryption session, then a short **randomized delay** (`primeDelayMs`, 1500–3500ms) before the actual send. Best-effort — a failed/negative check never blocks the send. Pure helpers unit-tested. No schema/migration. §12.2.1.
 - **0.11.5** (2026-06-08) — **WAHA send logging can now be enabled in production.** The `[waha-send]` log (added in 0.11.4) was gated on `NODE_ENV==='development'`, so it never appeared on the prod container (`NODE_ENV=production`). It now also turns on when the **`WAHA_LOG_SENDS`** env var is truthy (`1`/`true`) — set it in the prod env/compose to debug live sends without rebuilding the image or changing `NODE_ENV`. Still off by default in prod (the per-send LID lookup is opt-in). §12.2.1.
@@ -1042,7 +1043,8 @@ management (§20.11) · **§20.12** shared Card UI system.
 **Done:** **D11** Challenge module (§21) — Challenge Configuration + User/Active + WAHA inbound capture.
 **D12** Challenge WhatsApp automation (§21.8) — auto-create on PAID + hourly reminder cron + auto-elimination.
 **D5** WA Logs (§20.13) — outbound WhatsApp send audit (`WaMessageLog`) + filters + Resend.
-Later, optional: **D4** Leads & Purchase list pages ·
+**D4 (Leads half)** Leads list (§20.14) — every checkout submission, any status, + filters + Detail/Resend.
+Later, optional: **D4 (Purchase half)** Purchase list page (PAID-only) ·
 **D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
 per-table CSV/PDF export already ships in D3.1).
 
@@ -1134,7 +1136,8 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
 - `GET /admin/login` — login form.
 - `GET /admin` — Leads Report (cards + 14-day table + filter bar). Auth-gated.
 - `GET /admin/wa-logs` — WA Logs (outbound send audit + filters + Resend). Auth-gated. §20.13.
-- *(later)* `/admin/leads`, `/admin/purchases`, `/admin/reports`.
+- `GET /admin/leads` — Leads list (every checkout submission, any status; filters + Detail/Resend). Auth-gated. §20.14.
+- *(later)* `/admin/purchases`, `/admin/reports`.
 
 **API:**
 - `POST /api/admin/auth/login` — body `{ username, password }` → sets `admin_session` cookie; `200`/`401`.
@@ -1467,6 +1470,34 @@ Msg ID · Error · Aksi. **Resend** appears only on `FAILED` **delivery** rows (
 Records only the **final** per-row state that predated the table (pre-D5 retries weren't timestamped).
 
 **Deploy:** run migration `20260622000000_add_wa_message_log`, then optionally `wa-logs:backfill`.
+
+---
+
+### 20.14 Leads list (slice D4 — Leads half) `[STABLE]`
+A login-gated **Leads** page (`/admin/leads`, sidebar 👥) — a browsable log of **every checkout
+submission**. Per §20.2, a **Lead = any `Order`, any status** (the Leads Report cards already count
+leads; this is the row-level list behind them).
+
+**Scope (decided 2026-06-22):** shows **all** orders (PENDING/PAID/FAILED/EXPIRED/CANCELLED/REFUNDED) —
+the page has a status filter, and the separate **Purchase** menu (PAID-only) stays a later slice.
+**No schema change** — reads the existing `Order` + `Customer` + `Delivery`. PII (email/WhatsApp) is
+shown in **full** (operators need the real number to follow up a lead).
+
+**API — `GET /api/admin/leads`** (`requireAdmin`; cookie or bearer). Filters: `status` (an `OrderStatus`),
+`programId` (→ `productId`), `from`/`to` (`YYYY-MM-DD`, WIB-inclusive bounds), `q` (matches order code,
+tracking id, customer name/email/WhatsApp). Newest first, capped at 5000 rows (table paginates/searches
+client-side). Each row carries the order + customer + delivery summary (incl. `deliveryId` for Resend).
+
+**UI — `components/admin/LeadsList.tsx`:** `PageHeader` + a filter row (program / status / date-from /
+date-to) + the shared `DataTable` (sortable, searchable, paginated; CSV + PDF export). Columns: Waktu ·
+Nama · WhatsApp · Email · Program/Produk · Jumlah (IDR) · Status (badge) · Tracking · Pengiriman ·
+Aksi. A **Detail** modal shows the full order + delivery state; for an order that has a `Delivery` it
+offers a **Resend** (with an optional corrected WhatsApp number) via `POST /api/admin/deliveries/{id}/resend`.
+
+**Pure helpers — `lib/leads.ts`:** `formatIdr` (IDR integer formatting, invariant #8) and `leadStatusMeta`
+(status → Indonesian label + badge tone), unit-tested, shared by the export and the UI.
+
+**Deploy:** none beyond the standard image rebuild — no migration, env, cron, or volume.
 
 ---
 

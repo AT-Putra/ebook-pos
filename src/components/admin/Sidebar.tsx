@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 
 const NAV = [
   { label: 'Leads Report', href: '/admin', icon: '📊', ready: true },
-  { label: 'Leads', href: '/admin/leads', icon: '👥' },
+  { label: 'Leads', href: '/admin/leads', icon: '👥', ready: true },
   { label: 'Purchase', href: '/admin/purchases', icon: '🛒' },
   { label: 'Users / Active', href: '/admin/active', icon: '🔥', ready: true },
   { label: 'WA Logs', href: '/admin/wa-logs', icon: '💬', ready: true },

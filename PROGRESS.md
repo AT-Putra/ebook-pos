@@ -6,10 +6,10 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.12.0 |
+| PRD version in sync with | 0.13.0 |
 | Last updated | 2026-06-22 |
-| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs built (green) — pending VPS deploy + migration** |
-| Repo working state | green (163 tests, build passes, tsc clean) |
+| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list built (green) — pending VPS deploy** |
+| Repo working state | green (167 tests, build passes, tsc clean) |
 
 ## How to run
 - Install: `npm install`
@@ -38,7 +38,8 @@
 - [x] **D11 — Challenge module** (§21): `Challenge`/`ChallengeParticipant`/`ChallengeSubmission` + `ParticipantStatus` (migration `20260606010000_add_challenge_module`); **Challenge Configuration** (`/admin/challenge`, `ChallengeConfig.tsx`, per-program config seeded from `docs/challenge-rules.md`); **User/Active** (`/admin/active`, `ParticipantList.tsx` + manage modal: verify proofs, weights, drop, %-loss leaderboard); **WAHA inbound** (`/api/webhooks/waha`, HMAC-SHA512 auth, dedupe on payload.id, media → private `CHALLENGE_MEDIA_DIR`); admin APIs `challenges/[productId]`, `participants[/id][/proof/[kind]]`; `lib/challenge.ts` pure logic + `sendTextHumanized` in `lib/waha.ts`. *(built green: 141 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D12 — Challenge WA automation** (§21.8): auto-create participant on PAID (`AWAITING_INITIAL`); hourly cron `/api/cron/challenge-reminders` sends the rules' reminder schedule (idempotent via `ChallengeReminderLog`) + auto-eliminates (H+15 / day-105); `final_received` on verify-final; `lib/challenge.ts` `computeDueReminders`. *(built green; Active KPI wiring still deferred — open Q#15)*
 - [x] **D5 — WA Logs** (§20.13): new `WaMessageLog` audit table (migration `20260622000000_add_wa_message_log`) of every **outbound** WA send (e-book/attachment delivery + challenge reminders) written best-effort from `lib/wa-log.ts` (wired into `delivery.ts` + `challenge-reminders.ts`); `/admin/wa-logs` (`WaLogs.tsx`, PageHeader+DataTable, filters program/status/category/date + **Resend** on FAILED delivery rows); API `GET /api/admin/wa-logs`; backfill `npm run wa-logs:backfill`. Inbound + test-send out of scope. Resolves open Q#10. *(built green: 163 tests + tsc + build; pending VPS deploy + migration)*
-- [ ] (later) D4 leads/purchase lists · D6 user mgmt · D7 Laporan export page
+- [x] **D4 (Leads half) — Leads list** (§20.14): `/admin/leads` (`LeadsList.tsx`) = log of every checkout submission (any status); API `GET /api/admin/leads` (program/status/date/search filters); DataTable + CSV/PDF export; per-row **Detail** modal + **Resend** (optional corrected WA) reusing `/api/admin/deliveries/[id]/resend`; pure `lib/leads.ts` (`formatIdr`/`leadStatusMeta`, tested). No schema change. PII shown in full. *(built green: 167 tests + tsc + build)*
+- [ ] (later) D4 (Purchase half) PAID-only list · D6 user mgmt · D7 Laporan export page
 
 ## In progress
 - **D11 Challenge module — BUILT (green), not yet deployed.** All steps below done. 141 tests + tsc +
@@ -76,6 +77,12 @@
   Resend reuses `/api/admin/deliveries/[id]/resend`. Backfill script `scripts/backfill-wa-logs.mjs`
   (`npm run wa-logs:backfill`, idempotent). Scope decided 2026-06-22: outbound only (delivery+reminder),
   inbound + operator test-send excluded.
+- **D4 Leads list — BUILT (green).** `/admin/leads` (`LeadsList.tsx`) lists every `Order` (any status)
+  via new `GET /api/admin/leads` (filters: programId/status/from/to/q, WIB bounds, 5000-row cap, includes
+  customer + delivery summary). DataTable (CSV/PDF) + Detail modal with Resend (optional corrected number).
+  Pure `lib/leads.ts` (`formatIdr`/`leadStatusMeta`, unit-tested). Sidebar **Leads** `ready:true`. No
+  schema change (reads Order/Customer/Delivery). Scope decided 2026-06-22: all statuses, PII shown full,
+  Purchase (PAID-only) still later.
 
 ## Next up
 - **Deploy D11+D12** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`
@@ -87,7 +94,9 @@
 - **Deploy D5 WA Logs** (owner): with the same `git pull && docker compose up -d --build` →
   `prisma migrate deploy` (applies `20260622000000_add_wa_message_log`). Optionally seed history once:
   `npm run wa-logs:backfill` (needs `DATABASE_URL`). No new env/cron/volume.
-- Optional later: wire dashboard Active KPIs (open Q#15); D4/D6/D7.
+- **Deploy D5 WA Logs + D4 Leads** (owner): `git pull && docker compose up -d --build` (Leads needs no
+  migration; WA Logs needs `prisma migrate deploy` for `WaMessageLog`, optional `wa-logs:backfill`).
+- Optional later: wire dashboard Active KPIs (open Q#15); D4 Purchase half / D6 / D7.
 - (D10 already deployed by owner.)
 
 ## Decisions made (carry forward — do not re-litigate)

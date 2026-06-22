@@ -81,3 +81,24 @@ export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
   buckets.set(ip, result.bucket);
   return { allowed: result.allowed, retryAfter: result.retryAfter };
 }
+
+// ── Admin-login brute-force limiter (fixed, NOT admin-configurable) ───────────
+// A separate, always-on per-IP limiter for /api/admin/auth/login — independent of the
+// checkout RateLimitConfig (which an admin can disable). Keyed by IP only (no per-username
+// bucket) so an attacker can never lock a legitimate admin out by spamming their username.
+export const LOGIN_MAX_ATTEMPTS = 8;
+export const LOGIN_WINDOW_MS = 5 * 60_000; // 5 minutes
+const loginBuckets = new Map<string, Bucket>();
+let lastLoginSweep = 0;
+
+/** Per-IP fixed-window throttle for the admin login endpoint. Synchronous (no DB).
+ *  `now` is injectable for tests. */
+export function checkLoginRateLimit(ip: string, now: number = Date.now()): RateLimitResult {
+  if (now - lastLoginSweep >= 60_000) {
+    lastLoginSweep = now;
+    for (const [k, b] of loginBuckets) if (b.resetAt <= now) loginBuckets.delete(k);
+  }
+  const result = evaluateBucket(loginBuckets.get(ip), now, LOGIN_WINDOW_MS, LOGIN_MAX_ATTEMPTS);
+  loginBuckets.set(ip, result.bucket);
+  return { allowed: result.allowed, retryAfter: result.retryAfter };
+}

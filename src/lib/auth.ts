@@ -1,21 +1,31 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
+import crypto from 'node:crypto';
 import type { AdminUser } from '@prisma/client';
 import { env } from './env';
 import { validateSession, COOKIE_NAME } from './session';
+
+/** Constant-time string equality (avoids leaking a shared secret byte-by-byte via timing).
+ *  Length mismatch short-circuits to false (timingSafeEqual requires equal-length buffers). */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 /** Returns true if the request carries a valid admin bearer token. */
 export function isAdmin(req: NextRequest): boolean {
   const auth = req.headers.get('authorization') ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  return token === env.ADMIN_TOKEN;
+  return token.length > 0 && safeEqual(token, env.ADMIN_TOKEN);
 }
 
-/** Returns true if the request carries the cron secret. */
+/** Returns true if the request carries the cron secret in the `x-cron-secret` header.
+ *  Header-only (no `?secret=` query param) so the secret never lands in access logs. */
 export function isCron(req: NextRequest): boolean {
   const header = req.headers.get('x-cron-secret');
-  const query = req.nextUrl.searchParams.get('secret');
-  return (header ?? query) === env.CRON_SECRET;
+  return header != null && safeEqual(header, env.CRON_SECRET);
 }
 
 /**

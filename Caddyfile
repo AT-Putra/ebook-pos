@@ -1,5 +1,22 @@
 # Replace yourdomain.com with your actual domain.
 # Caddy auto-provisions TLS via Let's Encrypt when the domain resolves to this host.
 yourdomain.com {
+    # Security headers (production hardening — clickjacking, MIME-sniffing, HSTS).
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # frame-ancestors only restricts framing — safe (does not affect Next.js scripts/styles).
+        Content-Security-Policy "frame-ancestors 'self'"
+        # Don't advertise the upstream server.
+        -Server
+    }
+
+    # Cap request bodies (uploads are also limited to 32 MB in-app; this protects the proxy).
+    request_body {
+        max_size 40MB
+    }
+
     reverse_proxy app:3000
 }

@@ -30,8 +30,8 @@ describe('isCron', () => {
     expect(isCron(makeReq({ 'x-cron-secret': 'test-cron-secret' }))).toBe(true);
   });
 
-  it('accepts secret in query string', () => {
-    expect(isCron(makeReq({}, '?secret=test-cron-secret'))).toBe(true);
+  it('rejects the secret in a query string (header-only — no ?secret= in logs)', () => {
+    expect(isCron(makeReq({}, '?secret=test-cron-secret'))).toBe(false);
   });
 
   it('rejects wrong secret', () => {

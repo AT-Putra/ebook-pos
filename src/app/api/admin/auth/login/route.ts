@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { verifyPassword } from '@/lib/password';
 import { createSession, COOKIE_NAME } from '@/lib/session';
+import { checkLoginRateLimit, clientIpFromHeaders } from '@/lib/rate-limit';
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -12,6 +13,15 @@ const loginSchema = z.object({
 const SESSION_DAYS = 7;
 
 export async function POST(req: NextRequest) {
+  // Brute-force throttle (per IP, always on) — runs before the expensive scrypt verify.
+  const rl = checkLoginRateLimit(clientIpFromHeaders(req.headers));
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Terlalu banyak percobaan login. Silakan coba lagi nanti.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) {

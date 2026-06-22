@@ -21,7 +21,9 @@ done, idempotent, and recoverable.
   bare `628…` target, binary multipart `file` (10 MB cap), server-side `typing`/`delay`. Both HTTPS, never a
   public file URL (inv. #4/#5). Resolve the active engine via `lib/messaging.ts` `getWaEngine()`
 - `nodemailer` over Gmail SMTP (App Password) — **email fallback** for failed WA delivery (D14, §23)
-- Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host
+- Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host. `Caddyfile` sets
+  production security headers (HSTS, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, CSP `frame-ancestors`)
+  + a `request_body max_size 40MB` cap.
 - Dashboard tables: TanStack Table (`@tanstack/react-table`); export: `jspdf` + `jspdf-autotable` (PDF), `Blob` (CSV)
 
 ## Commands
@@ -92,7 +94,11 @@ done, idempotent, and recoverable.
     checked live via `lib/cors.ts`. Never use `*`. CORS is not an auth/anti-abuse boundary.
 11. **Checkout rate limit** (`lib/rate-limit.ts`, `RateLimitConfig` singleton, Pengaturan UI):
     per-IP fixed window, in-memory (per container), configurable + disableable; `429` + `Retry-After`
-    when exceeded. Config cached 10s; admin PUT clears the cache.
+    when exceeded. Config cached 10s; admin PUT clears the cache. **Admin login** has a SEPARATE,
+    always-on per-IP throttle (`checkLoginRateLimit`, fixed 8/5min — NOT the disableable checkout config)
+    on `/api/admin/auth/login`, before the scrypt verify (anti-brute-force). Machine secrets
+    (`ADMIN_TOKEN`/`CRON_SECRET`) are compared constant-time (`lib/auth.ts` `safeEqual`); `CRON_SECRET`
+    is `x-cron-secret` header-only (no `?secret=` query — keeps it out of logs).
 12. **Sales window (`lib/programs.ts` `isOnSale`)**: a program with a `salesEndAt` in the past (or a
     future `salesStartAt`, or `isActive=false`) is NOT buyable — `/api/checkout` returns `403` and
     creates no order; the `[slug]` page hides the form. Server check is authoritative. Dates are WIB
@@ -197,7 +203,8 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - **Auth gating:** `src/proxy.ts` guards ONLY the `/admin/*` UI pages (redirect to login). Every
   `/api/admin/*` route self-authenticates with `requireAdmin(req)` from `lib/auth.ts` — accepts a
   valid session cookie OR the `ADMIN_TOKEN` bearer. Do NOT gate `/api/admin/*` in the proxy (that
-  blocks bearer/machine callers). `/api/cron/*` uses `isCron`, not requireAdmin.
+  blocks bearer/machine callers). `/api/cron/*` uses `isCron` (`x-cron-secret` header-only,
+  constant-time), not requireAdmin. The login route self-rate-limits (`checkLoginRateLimit`).
 - **UI consistency (§20.12) — REQUIRED for every menu:** compose pages from `PageHeader` + `CardStack` +
   `Card` (and `DataTable` for tables) from `components/admin/Card.tsx`. All cards must be the same size
   (one shell: `1px #e7ebf0` border, 12px radius, uniform padding); page width = the single

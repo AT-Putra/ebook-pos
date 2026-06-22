@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.16.0 |
+| Version | 0.16.1 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,18 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.16.1** (2026-06-22) — **Pre-production security hardening.** From a security review: (1) **admin
+  login is now rate-limited** — a fixed, always-on per-IP throttle (`checkLoginRateLimit`, 8 attempts /
+  5 min, in `lib/rate-limit.ts`, independent of the admin-configurable checkout limit) runs before the
+  scrypt verify on `/api/admin/auth/login`, returning `429 + Retry-After`; keyed by IP only so a legit
+  admin can't be locked out by username-spam. (2) **`CRON_SECRET` is now header-only** (`x-cron-secret`) —
+  the `?secret=` query form was removed so the secret never lands in access logs (the deployed crontab
+  already uses the header). (3) **`ADMIN_TOKEN` / `CRON_SECRET` are compared with `timingSafeEqual`**
+  (`lib/auth.ts` `safeEqual`), consistent with the Midtrans/WAHA/password paths. (4) **Caddy now sets
+  security headers** (HSTS, `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy`, CSP `frame-ancestors 'self'`) and a `request_body max_size 40MB` cap. No schema/env
+  change; deploy = image rebuild + the updated `Caddyfile`. Tests +3 (login throttle) and the cron-auth
+  test flipped to header-only. 214 tests + tsc + build green.
 - **0.16.0** (2026-06-22) — **Switchable WhatsApp engine: WAHA ↔ Fonnte (slice D15) — BUILT.** The
   WhatsApp channel is no longer hard-wired to WAHA. A new `lib/messaging.ts` defines a small **`WaEngine`**
   interface (`sendFile` + `sendText`, both keyed on a normalized `628…` phone) and a DB-backed singleton
@@ -689,7 +701,8 @@ ebook-sales/
 **Responses**: `200` (processed/duplicate-ignored), `403` (bad signature), `404` (unknown order).
 
 ### GET `/api/cron/process-deliveries`
-**Auth**: `CRON_SECRET` (header `x-cron-secret` or `?secret=`).
+**Auth**: `CRON_SECRET` via the **`x-cron-secret` header only** (the `?secret=` query form was removed in
+0.16.1 so the secret never appears in access logs; compared constant-time).
 **Behaviour**: select due deliveries, mark `PROCESSING`, send via WAHA, update status/backoff.
 **200 Response**: `{ "processed": 3, "sent": 2, "failed": 1 }`
 

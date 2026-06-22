@@ -1,4 +1,4 @@
-import { evaluateBucket, clientIpFromHeaders } from '@/lib/rate-limit';
+import { evaluateBucket, clientIpFromHeaders, checkLoginRateLimit, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS } from '@/lib/rate-limit';
 
 describe('evaluateBucket (fixed window)', () => {
   const WINDOW = 60_000;
@@ -26,6 +26,35 @@ describe('evaluateBucket (fixed window)', () => {
     const r = evaluateBucket({ count: 3, resetAt: 1000 }, 2000, WINDOW, MAX);
     expect(r.allowed).toBe(true);
     expect(r.bucket).toEqual({ count: 1, resetAt: 2000 + WINDOW });
+  });
+});
+
+describe('checkLoginRateLimit (admin login brute-force throttle)', () => {
+  it('allows up to LOGIN_MAX_ATTEMPTS then blocks within the window', () => {
+    const ip = '203.0.113.99'; // unique IP — module state is per-key
+    const t0 = 1_000_000;
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i++) {
+      expect(checkLoginRateLimit(ip, t0).allowed).toBe(true);
+    }
+    const blocked = checkLoginRateLimit(ip, t0);
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.retryAfter).toBeGreaterThan(0);
+  });
+
+  it('resets after the window elapses', () => {
+    const ip = '203.0.113.100';
+    const t0 = 2_000_000;
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i++) checkLoginRateLimit(ip, t0);
+    expect(checkLoginRateLimit(ip, t0).allowed).toBe(false);
+    // After the window, the bucket reopens.
+    expect(checkLoginRateLimit(ip, t0 + LOGIN_WINDOW_MS + 1).allowed).toBe(true);
+  });
+
+  it('tracks each IP independently', () => {
+    const t0 = 3_000_000;
+    for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i++) checkLoginRateLimit('203.0.113.101', t0);
+    expect(checkLoginRateLimit('203.0.113.101', t0).allowed).toBe(false);
+    expect(checkLoginRateLimit('203.0.113.102', t0).allowed).toBe(true); // different IP unaffected
   });
 });
 

@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.16.0 |
+| PRD version in sync with | 0.16.1 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -212,6 +212,18 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-22 — **Pre-production security hardening (PRD 0.16.1).** From a security review (using LSP to
+  confirm `checkRateLimit` was only wired to checkout): (1) **admin login now rate-limited** — fixed
+  always-on per-IP throttle `checkLoginRateLimit` (8/5min, separate from the disableable checkout config,
+  keyed by IP only to avoid lockout-DoS) before the scrypt verify on `/api/admin/auth/login` → `429`.
+  (2) **`CRON_SECRET` header-only** (`x-cron-secret`) — dropped the `?secret=` query form (kept it out of
+  logs; deployed crontab already uses the header). (3) **`ADMIN_TOKEN`/`CRON_SECRET` compared
+  constant-time** (`lib/auth.ts` `safeEqual`). (4) **Caddyfile** gains HSTS / X-Frame-Options:SAMEORIGIN /
+  nosniff / Referrer-Policy / CSP frame-ancestors + `request_body max_size 40MB`. No schema/env change.
+  Tests: +3 login-throttle, cron-auth test flipped to header-only. 214 tests + tsc + build green.
+  **Deploy = image rebuild + the updated `Caddyfile` (reload Caddy).** Other review findings (Fonnte
+  webhook token-in-URL — inherent to Fonnte; per-container config cache; resend not resetting `attempts`)
+  noted but not changed.
 - 2026-06-22 — **Switchable WhatsApp engine: WAHA ↔ Fonnte (PRD 0.16.0 §24, slice D15) — BUILT.** Owner
   asked for a Fonnte engine alongside WAHA, switchable in Pengaturan. Reviewed the 2 outbound paths
   (`sendFile` transactional, `sendTextHumanized` conversational) + the WAHA inbound webhook, then asked 3

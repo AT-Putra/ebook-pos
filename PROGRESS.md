@@ -83,6 +83,15 @@
   Pure `lib/leads.ts` (`formatIdr`/`leadStatusMeta`, unit-tested). Sidebar **Leads** `ready:true`. No
   schema change (reads Order/Customer/Delivery). Scope decided 2026-06-22: all statuses, PII shown full,
   Purchase (PAID-only) still later.
+- **D6 User management — BUILT (green).** Admin-account CRUD as a **Pengguna (Admin)** card in
+  **Pengaturan** (`UserManager.tsx`): add / rename / reset password / (de)activate. No schema change
+  (`AdminUser` already complete). APIs `GET`+`POST /api/admin/users`, `PATCH /api/admin/users/[id]`
+  (all `requireAdmin`). Guards: unique username (409), passwords scrypt-hashed (never returned/logged),
+  can't deactivate yourself or the last active admin (422); deactivation revokes that user's `Session`s.
+  New `currentAdminUser(req)` in `lib/auth.ts`; pure `lib/admin-users.ts` (zod schemas + `serializeAdminUser`
+  + `deactivationBlock`, unit-tested, 11 tests). **Purchase (PAID-only) and D7 Laporan: NOT built**
+  (owner 2026-06-22 — Leads `Lunas` filter + per-table CSV/PDF export cover them); both sidebar items
+  removed. 178 tests + tsc + build green. PRD 0.14.0 §20.15. Deploy = image rebuild only.
 
 ## Next up
 - **Deploy D11+D12** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`
@@ -94,9 +103,11 @@
 - **Deploy D5 WA Logs** (owner): with the same `git pull && docker compose up -d --build` →
   `prisma migrate deploy` (applies `20260622000000_add_wa_message_log`). Optionally seed history once:
   `npm run wa-logs:backfill` (needs `DATABASE_URL`). No new env/cron/volume.
-- **Deploy D5 WA Logs + D4 Leads** (owner): `git pull && docker compose up -d --build` (Leads needs no
-  migration; WA Logs needs `prisma migrate deploy` for `WaMessageLog`, optional `wa-logs:backfill`).
-- Optional later: wire dashboard Active KPIs (open Q#15); D4 Purchase half / D6 / D7.
+- **Deploy D5 WA Logs + D4 Leads + D6 User mgmt** (owner): `git pull && docker compose up -d --build`
+  (Leads + D6 need no migration; WA Logs needs `prisma migrate deploy` for `WaMessageLog` — already
+  applied 2026-06-22 — optional `wa-logs:backfill`).
+- Optional later: wire dashboard Active KPIs (open Q#15). **D4 Purchase half + D7 Laporan: dropped**
+  (owner 2026-06-22).
 - (D10 already deployed by owner.)
 
 ## Decisions made (carry forward — do not re-litigate)

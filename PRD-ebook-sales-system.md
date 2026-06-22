@@ -14,6 +14,7 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.14.0** (2026-06-22) — **User management (slice D6) — BUILT.** Admin-account CRUD added as a **Pengguna (Admin)** card inside **Pengaturan** (`/admin/settings`) — the operator can **add** an admin, **rename** one, **reset** a password, and **activate/deactivate** an account (no hard delete; deactivation revokes that user's sessions). **No schema change** — `AdminUser` already carried `username`/`name`/`passwordHash`/`isActive`/`lastLoginAt`. New APIs `GET`+`POST /api/admin/users` and `PATCH /api/admin/users/{id}` (all `requireAdmin`). Guards: usernames are unique (409 on collision), passwords are scrypt-hashed (`lib/password.ts`, never returned to the client / never logged), and a user **cannot deactivate themselves or the last remaining active admin** (prevents lockout). New `currentAdminUser(req)` helper in `lib/auth.ts` (resolves the cookie session's user; bearer callers have none). Pure `lib/admin-users.ts` (zod `createUserSchema`/`updateUserSchema` + `serializeAdminUser` + `deactivationBlock` guard) is unit-tested. UI `components/admin/UserManager.tsx`. Deploy = image rebuild only (no migration/env/cron/volume). The **Purchase** menu (PAID-only) and **Laporan** export page (D7) remain intentionally **not built** — the operator uses the Leads status filter and the per-table CSV/PDF export instead. §20.15.
 - **0.13.0** (2026-06-22) — **Leads menu (slice D4, the Leads half) — BUILT.** New login-gated **Leads** page (`/admin/leads`) — a log of **every checkout submission** (an `Order`, **any status**; Lead = any submission per §20.2). No schema change — reads existing `Order`/`Customer`/`Delivery`. New API `GET /api/admin/leads` (`requireAdmin`) with **program / status / date-range / search** filters (search across order code, tracking id, name, email, WhatsApp; WIB date bounds; 5000-row cap). UI `LeadsList.tsx` = `PageHeader` + filter row + shared `DataTable` (sort/search/paginate, CSV+PDF export) with columns Waktu · Nama · WhatsApp · Email · Program/Produk · Jumlah · Status (badge) · Tracking · Pengiriman · Aksi. A per-row **Detail** modal shows the full order + delivery state and, for orders with a delivery, a **Resend** (optional corrected WhatsApp number) reusing `POST /api/admin/deliveries/{id}/resend`. PII (email/WhatsApp) shown in full (operator follow-up; decided 2026-06-22). Pure `lib/leads.ts` helpers (`formatIdr`, `leadStatusMeta`) unit-tested. The **Purchase** page (PAID-only) remains a later slice. §20.14.
 - **0.12.0** (2026-06-22) — **WA Logs menu (slice D5) — BUILT.** New login-gated **WA Logs** page (`/admin/wa-logs`) — an audit trail of every **outbound** WhatsApp send: e-book + attachment **deliveries** and challenge **reminders** (incl. the `after_purchase` instant message + the `proof_received` auto-ack). Backed by a new immutable, FK-decoupled **`WaMessageLog`** table written **best-effort** (logging never blocks/fails a send) from `lib/wa-log.ts`, wired into `delivery.ts` (per `DeliveryItem`) and `challenge-reminders.ts` `sendChallengeReminderOnce` (per reminder). The page uses the standard `PageHeader`+`DataTable` (sort/search/paginate, CSV+PDF export) with **program / status / category / date-range** filters and a **Resend** action on `FAILED` delivery rows (reuses `POST /api/admin/deliveries/{id}/resend`). API `GET /api/admin/wa-logs` (`requireAdmin`). One-off backfill from existing `DeliveryItem`+`ChallengeReminderLog` via `npm run wa-logs:backfill` (idempotent, records the final per-row state). Inbound proof videos + the operator test-send are intentionally **out of scope** (decided 2026-06-22). New migration `20260622000000_add_wa_message_log`; resolves open Q#10. §20.13.
 - **0.11.6** (2026-06-08) — **Prime never-contacted recipients before sending (first-contact delivery fix).** Messages to a number that had **never messaged the WAHA account first** were accepted by the API (`status: PENDING`) but never delivered — WhatsApp's E2E encryption has no session for an unknown recipient. Both send paths (`sendFile`, `sendTextHumanized`) now call `primeRecipient(chatId)` first: WAHA's `GET /api/contacts/check-exists` (new `checkNumberExists` helper) performs the on-WhatsApp lookup that resolves the recipient + primes the encryption session, then a short **randomized delay** (`primeDelayMs`, 1500–3500ms) before the actual send. Best-effort — a failed/negative check never blocks the send. Pure helpers unit-tested. No schema/migration. §12.2.1.
@@ -1044,9 +1045,9 @@ management (§20.11) · **§20.12** shared Card UI system.
 **D12** Challenge WhatsApp automation (§21.8) — auto-create on PAID + hourly reminder cron + auto-elimination.
 **D5** WA Logs (§20.13) — outbound WhatsApp send audit (`WaMessageLog`) + filters + Resend.
 **D4 (Leads half)** Leads list (§20.14) — every checkout submission, any status, + filters + Detail/Resend.
-Later, optional: **D4 (Purchase half)** Purchase list page (PAID-only) ·
-**D6** user management (multi-admin CRUD UI) · **D7** Laporan page (broader cross-dataset export;
-per-table CSV/PDF export already ships in D3.1).
+**D6** user management (§20.15) — multi-admin CRUD (add/rename/reset-password/(de)activate) as a card in Pengaturan.
+**Not built (owner, 2026-06-22):** **D4 (Purchase half)** PAID-only page (Leads' `Lunas` filter covers it) ·
+**D7** Laporan export hub (every table already exports CSV/PDF of its current view).
 
 ### 19.4 Anti-regression rules
 - Every completed feature gets at least one test; run the suite before and after each slice.
@@ -1166,6 +1167,11 @@ All date bucketing is in **Asia/Jakarta (WIB, UTC+7)**. A *period* is an inclusi
   - `DELETE /api/admin/programs/{id}/attachments/{attachmentId}` — remove an attachment (unlink its file).
   - `DELETE /api/admin/programs/{id}` — only when the program has **zero orders** (else `409` — tell
     the operator to deactivate instead, preserving the order/audit history).
+- **User management (D6, all `requireAdmin`, §20.15):**
+  - `GET /api/admin/users` — list accounts (no `passwordHash`) + the caller's own `currentUserId`.
+  - `POST /api/admin/users` — create `{ username, name, password }`; `409` on duplicate username.
+  - `PATCH /api/admin/users/{id}` — partial `{ name?, password?, isActive? }` (rename / reset / (de)activate;
+    `422` when deactivating yourself or the last active admin).
 - Existing `GET /api/admin/orders` and `POST /api/admin/deliveries/{id}/resend` stay (now also accept
   session auth, not only the bearer token).
 
@@ -1498,6 +1504,41 @@ offers a **Resend** (with an optional corrected WhatsApp number) via `POST /api/
 (status → Indonesian label + badge tone), unit-tested, shared by the export and the UI.
 
 **Deploy:** none beyond the standard image rebuild — no migration, env, cron, or volume.
+
+### 20.15 User management (slice D6) `[STABLE]`
+Admin-account management so the operator can grow/curate the dashboard's login accounts without the
+`npm run admin:create` CLI. Lives as a **Pengguna (Admin)** card inside **Pengaturan** (`/admin/settings`,
+below CORS + Rate Limit) — not a new sidebar item. **No schema change** — the existing `AdminUser`
+(`username` unique, `name`, `passwordHash`, `isActive`, `lastLoginAt`) already covers it.
+
+**Actions:** **Add** (username + name + password) · **Rename** · **Reset password** · **Activate /
+Deactivate**. There is **no hard delete** (deactivate instead — preserves session/audit history and any
+FK). Deactivating an account also **revokes its sessions** (`Session` rows deleted → forced logout).
+
+**APIs** (all `requireAdmin`, cookie or bearer):
+- `GET /api/admin/users` — list (`id`, `username`, `name`, `isActive`, `lastLoginAt`, `createdAt`) +
+  the caller's own `currentUserId` (so the UI can disable self-deactivation). **Never returns `passwordHash`.**
+- `POST /api/admin/users` — create `{ username, name, password }`. `username` unique → `409` on collision.
+- `PATCH /api/admin/users/{id}` — partial `{ name?, password?, isActive? }` (rename / reset / (de)activate).
+
+**Guards (anti-lockout):** a user may **not deactivate themselves**, and the **last active admin** may
+not be deactivated (`422`). Passwords are scrypt-hashed via `lib/password.ts` and **never** sent to the
+client or logged. New helper `currentAdminUser(req)` in `lib/auth.ts` resolves the cookie session's
+`AdminUser` (bearer/machine callers resolve to `null` — no self-guard needed, they can act on anyone).
+
+**Pure helpers — `lib/admin-users.ts`:** `createUserSchema` / `updateUserSchema` (zod: username
+3–32 chars `[a-zA-Z0-9._-]`, name 1–80, password 8–200), `serializeAdminUser` (strips `passwordHash`),
+and `deactivationBlock(target, currentUserId, activeCount)` → reason string | null. Unit-tested.
+
+**UI — `components/admin/UserManager.tsx`:** a `Card` listing accounts (name · @username · status badge ·
+last login) with inline **add** form and per-row **rename / reset password / (de)activate** controls; the
+caller's own row and the last active admin have deactivation disabled.
+
+**Deploy:** image rebuild only — no migration, env, cron, or volume.
+
+> **D7 (Laporan export page) and the Purchase (PAID-only) page are intentionally NOT built** (owner,
+> 2026-06-22): every table already exports CSV/PDF of its current view, and Leads' status filter (`Lunas`)
+> covers the PAID-only need. Revisit only if the operator asks for a dedicated cross-metric export hub.
 
 ---
 

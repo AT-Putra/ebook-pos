@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
+import type { AdminUser } from '@prisma/client';
 import { env } from './env';
 import { validateSession, COOKIE_NAME } from './session';
 
@@ -29,4 +30,16 @@ export async function requireAdmin(req: NextRequest): Promise<boolean> {
   const token = store.get(COOKIE_NAME)?.value;
   if (!token) return false;
   return (await validateSession(token)) !== null;
+}
+
+/**
+ * Resolve the AdminUser behind the request's session cookie, or null. Used by
+ * user-management guards (e.g. you can't deactivate yourself). Bearer/machine
+ * callers (ADMIN_TOKEN) have no associated user → null, and are not self-guarded.
+ */
+export async function currentAdminUser(_req: NextRequest): Promise<AdminUser | null> {
+  const store = await cookies();
+  const token = store.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  return validateSession(token);
 }

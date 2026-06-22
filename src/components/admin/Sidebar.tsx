@@ -3,15 +3,15 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
+// Purchase (PAID-only) and Laporan (export hub) are intentionally not built —
+// Leads' status filter + per-table CSV/PDF export cover those needs (PRD §20.15).
 const NAV = [
   { label: 'Leads Report', href: '/admin', icon: '📊', ready: true },
   { label: 'Leads', href: '/admin/leads', icon: '👥', ready: true },
-  { label: 'Purchase', href: '/admin/purchases', icon: '🛒' },
   { label: 'Users / Active', href: '/admin/active', icon: '🔥', ready: true },
   { label: 'WA Logs', href: '/admin/wa-logs', icon: '💬', ready: true },
   { label: 'Program', href: '/admin/program', icon: '🎯', ready: true },
   { label: 'Challenge', href: '/admin/challenge', icon: '🏆', ready: true },
-  { label: 'Laporan', href: '/admin/reports', icon: '📄' },
   { label: 'Pengaturan', href: '/admin/settings', icon: '⚙️', ready: true },
 ];
 

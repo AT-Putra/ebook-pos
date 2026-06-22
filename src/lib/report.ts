@@ -6,16 +6,29 @@ export type DayMetrics = {
   purchase: number;
   convRate: number;   // 0–1, two decimal places max
   revenue: number;    // IDR integer
-  active: number;     // stub — 0 until Challenge module
-  convRateActive: number; // stub — 0
+  active: number;     // not day-bucketed — see ActiveSnapshot; left 0 in the per-day series
+  convRateActive: number; // not day-bucketed — left 0 in the per-day series
   totalWa: number;
   sukses: number;
   failed: number;
 };
 
+/**
+ * Live (current-state) challenge metrics — NOT day-bucketed. A participant's
+ * RUNNING status is a snapshot, not a historical per-day event, so Active is a
+ * single current number scoped to the optional program filter (the KPI cards),
+ * not a column we can reconstruct per past day.
+ */
+export type ActiveSnapshot = {
+  active: number;          // participants currently RUNNING (Challenge §21)
+  purchases: number;       // cumulative PAID orders in scope (denominator)
+  convRateActive: number;  // active / purchases, 0–1
+};
+
 export type ReportData = {
   today: DayMetrics;
   series: DayMetrics[];
+  snapshot: ActiveSnapshot;
 };
 
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000; // UTC+7
@@ -31,7 +44,9 @@ function wibDayBounds(dateStr: string): { start: Date; end: Date } {
   return { start, end };
 }
 
-function rate(numerator: number, denominator: number): number {
+/** Conversion ratio (0–1) at 4-decimal precision; 0 when the denominator is 0.
+ *  Shared by convRate (purchase/leads) and convRateActive (active/purchases). */
+export function rate(numerator: number, denominator: number): number {
   if (denominator === 0) return 0;
   return Math.round((numerator / denominator) * 10000) / 10000; // 4 decimal precision
 }
@@ -73,6 +88,22 @@ export async function getDayMetrics(dateStr: string, productId?: string): Promis
   };
 }
 
+/**
+ * Live challenge snapshot: how many participants are currently RUNNING vs. how
+ * many total paid orders exist (cumulative, all-time) within the program scope.
+ * Active = count of `RUNNING` ChallengeParticipant; convRateActive = active /
+ * cumulative purchases. Scoped via the participant's challenge → product.
+ */
+export async function getActiveSnapshot(productId?: string): Promise<ActiveSnapshot> {
+  const [active, purchases] = await Promise.all([
+    db.challengeParticipant.count({
+      where: { status: 'RUNNING', ...(productId ? { challenge: { productId } } : {}) },
+    }),
+    db.order.count({ where: { status: 'PAID', ...(productId ? { productId } : {}) } }),
+  ]);
+  return { active, purchases, convRateActive: rate(active, purchases) };
+}
+
 // Inclusive list of WIB date strings from `fromStr` to `toStr` (both YYYY-MM-DD).
 // Anchored on the +07:00 offset and stepped by whole days so the labels are
 // correct in WIB regardless of the server/container timezone (no setHours).
@@ -94,10 +125,11 @@ export async function getReport(
 ): Promise<ReportData> {
   const todayStr = toWibDateString(new Date());
 
-  const [today, ...seriesDates] = await Promise.all([
+  const [today, snapshot, ...seriesDates] = await Promise.all([
     getDayMetrics(todayStr, productId),
+    getActiveSnapshot(productId),
     ...buildDateSeries(fromStr, toStr).map(d => getDayMetrics(d, productId)),
   ]);
 
-  return { today, series: seriesDates };
+  return { today, series: seriesDates, snapshot };
 }

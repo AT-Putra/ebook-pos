@@ -91,7 +91,13 @@
   New `currentAdminUser(req)` in `lib/auth.ts`; pure `lib/admin-users.ts` (zod schemas + `serializeAdminUser`
   + `deactivationBlock`, unit-tested, 11 tests). **Purchase (PAID-only) and D7 Laporan: NOT built**
   (owner 2026-06-22 — Leads `Lunas` filter + per-table CSV/PDF export cover them); both sidebar items
-  removed. 178 tests + tsc + build green. PRD 0.14.0 §20.15. Deploy = image rebuild only.
+  removed. PRD 0.14.0 §20.15. Deploy = image rebuild only.
+- **Active KPI — WIRED (green), open Q#15 resolved (2026-06-22).** `Active` / `Conv. Rate Active` KPI
+  cards are now LIVE: `getActiveSnapshot(productId?)` in `lib/report.ts` → `ReportData.snapshot`
+  (Active = current `RUNNING` `ChallengeParticipant` count; convRateActive = Active ÷ cumulative PAID
+  orders, program-scoped). Surfaced on the real-time KPI cards in `LeadsReport.tsx`; it's a **live
+  snapshot** so the 14-day table's Active columns stay "—" (no per-day status history). Exported `rate()`
+  helper, unit-tested. 181 tests + tsc + build green. PRD §20.4. Deploy = image rebuild only.
 
 ## Next up
 - **Deploy D11+D12** (owner): `git pull && sudo docker compose up -d --build` → `prisma migrate deploy`

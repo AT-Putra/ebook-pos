@@ -149,8 +149,10 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 - Mockup: `docs/mockups/cms.png`. Indonesian UI. Login-gated `/admin/*`.
 - **Lead** = any checkout submission (`Order`, any status); **Purchase** = `Order.status=PAID`.
   Metrics come from existing `Order`/`Delivery` — see §20.4 for exact, WIB-bucketed definitions.
-- **Active / Conv.Rate Active** KPIs: stay STUBBED (`0` / `—`) in D11. They become real off
-  `ChallengeParticipant` in D12 (Active = `RUNNING` count); don't fabricate data meanwhile.
+- **Active / Conv.Rate Active** KPIs: **LIVE since D6 (2026-06-22, §20.4)** — `getActiveSnapshot(productId?)`
+  in `lib/report.ts` → `ReportData.snapshot` (Active = current `RUNNING` `ChallengeParticipant` count;
+  Conv.Rate Active = Active ÷ cumulative PAID orders, program-scoped). They are a **live snapshot** on the
+  real-time KPI cards only — the 14-day series table keeps "—" (no per-day status history; don't fabricate).
 - **Program** is NOT the challenge — it is the sellable-e-book config (D10, §20.11): main e-book +
   optional **attachment PDFs** + sales window. The sidebar Program page and the Leads Report **Program
   dropdown are real/live** as of D10: the dropdown filters every metric by program/product
@@ -183,8 +185,8 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
   spec it in the PRD (bump version + changelog) BEFORE building, so a fresh session can work from the docs.
 
 ## Deferred (do NOT build now)
-- **Dashboard Active / Conv.Rate Active KPIs** — still stubbed (`0`/`—`); D12 left them out (open Q#15).
-  They'd compute off `ChallengeParticipant` (Active = `RUNNING` count) — wire only if asked.
+- **Dashboard Active / Conv.Rate Active KPIs** — ✅ **DONE (D6, 2026-06-22)**, no longer deferred; live off
+  `ChallengeParticipant` (`getActiveSnapshot`, §20.4). Open Q#15 resolved.
 - Winner-announcement automation (the reward winners are read off the %-loss leaderboard manually).
 - **Dropped (owner 2026-06-22): D4 Purchase half (PAID-only) + D7 Laporan export page** — do NOT build
   unless re-requested. (D5 WA Logs §20.13 + D4 Leads §20.14 + D6 user mgmt §20.15 now BUILT.)

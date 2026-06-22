@@ -76,6 +76,7 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
 
   const today = data.today;
   const series = data.series;
+  const snapshot = data.snapshot;
 
   const totals = useMemo(() => series.reduce(
     (acc, d) => ({
@@ -170,8 +171,8 @@ export function LeadsReport({ initial }: { initial: ReportData }) {
           <KpiCard label="Purchase" value={today.purchase} sub="Total purchase hari ini" icon="🛒" accent="#7c3aed" />
           <KpiCard label="Conversion Rate" value={formatPct(today.convRate)} sub="Leads → Purchase" icon="📈" accent="#0ea5e9" />
           <KpiCard label="Revenue" value={formatIDR(today.revenue)} sub="Total revenue hari ini" icon="💰" accent="#16a34a" />
-          <KpiCard label="Active" value={0} sub="Total users aktif" icon="🔥" stub />
-          <KpiCard label="Conv. Rate Active" value="0%" sub="Segera hadir (program)" icon="⚡" stub />
+          <KpiCard label="Active" value={snapshot.active} sub="Peserta challenge aktif (RUNNING)" icon="🔥" accent="#ea580c" />
+          <KpiCard label="Conv. Rate Active" value={formatPct(snapshot.convRateActive)} sub="Active / total pembeli" icon="⚡" accent="#d97706" />
         </div>
       </div>
 

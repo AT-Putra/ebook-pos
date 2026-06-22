@@ -6,8 +6,8 @@ export type DayMetrics = {
   purchase: number;
   convRate: number;   // 0–1, two decimal places max
   revenue: number;    // IDR integer
-  active: number;     // participants RUNNING on this WIB day (reconstructed window — getActiveSeries)
-  convRateActive: number; // active ÷ cumulative PAID purchases as of this day
+  active: number;     // participants who BECAME active (startAt) on this WIB day — event count
+  convRateActive: number; // active ÷ purchases of the same day
   totalWa: number;
   sukses: number;
   failed: number;
@@ -105,64 +105,36 @@ export async function getActiveSnapshot(productId?: string): Promise<ActiveSnaps
 }
 
 /**
- * Per-day reconstruction of Active / Conv.Rate Active for the historical series.
- * Unlike the live snapshot, this rebuilds each past day from real participant
- * timestamps — NOT fabricated:
- *   - A participant is "active" on a WIB day D if their RUNNING window covers D.
- *   - The window opens at `startAt` (initial proof received = challenge day 1).
- *   - It closes when they leave RUNNING: still-RUNNING participants are ongoing
- *     (open window); otherwise the close is `finalSubmittedAt` (submitted final)
- *     or, lacking that (e.g. eliminated/DROPPED), `updatedAt` as the best
- *     available approximation of when they stopped running.
- *   - Participants that never started (startAt null) are never counted.
- * Conv.Rate Active per day = active ÷ cumulative PAID purchases as of that day.
+ * Per-day **event** count of Active for the historical series — bucketed the
+ * same way leads/purchase are: a participant is counted on the single WIB day
+ * they *became* active (i.e. their `startAt` = initial proof received = challenge
+ * day 1), NOT every day they remain RUNNING. So a day shows a number only when a
+ * new participant entered Active that day (most days are 0). Conv. Rate Active
+ * for the row is computed by the caller as active ÷ purchases of the same day
+ * (mirroring Conv. Rate = purchase ÷ leads). Participants that never started
+ * (`startAt` null) are never counted.
  * Returns a map keyed by WIB date string so getReport can merge it into series.
  */
-// A participant's RUNNING window as WIB date strings; endDay null = still ongoing.
-export type ActiveWindow = { startDay: string; endDay: string | null };
-
-/** Pure: how many windows cover WIB day `d` and the active-conversion vs. the
- *  cumulative purchases as of `d`. YYYY-MM-DD strings compare lexically. */
-export function activeForDay(
-  windows: ActiveWindow[],
-  paidDays: string[],
-  d: string,
-): { active: number; convRateActive: number } {
-  const active = windows.filter(
-    w => w.startDay <= d && (w.endDay === null || w.endDay >= d),
-  ).length;
-  const purchases = paidDays.filter(pd => pd <= d).length;
-  return { active, convRateActive: rate(active, purchases) };
+// Pure: bucket WIB start-day strings into per-day Active event counts.
+export function bucketActiveByDay(startDays: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const d of startDays) counts.set(d, (counts.get(d) ?? 0) + 1);
+  return counts;
 }
 
 export async function getActiveSeries(
   dates: string[],
   productId?: string,
-): Promise<Map<string, { active: number; convRateActive: number }>> {
-  const result = new Map<string, { active: number; convRateActive: number }>();
-  if (dates.length === 0) return result;
+): Promise<Map<string, number>> {
+  if (dates.length === 0) return new Map<string, number>();
 
-  const [participants, paidOrders] = await Promise.all([
-    db.challengeParticipant.findMany({
-      where: { startAt: { not: null }, ...(productId ? { challenge: { productId } } : {}) },
-      select: { startAt: true, status: true, finalSubmittedAt: true, updatedAt: true },
-    }),
-    db.order.findMany({
-      where: { status: 'PAID', paidAt: { not: null }, ...(productId ? { productId } : {}) },
-      select: { paidAt: true },
-    }),
-  ]);
+  const participants = await db.challengeParticipant.findMany({
+    where: { startAt: { not: null }, ...(productId ? { challenge: { productId } } : {}) },
+    select: { startAt: true },
+  });
 
-  // Reduce each participant to a [startDay, endDay] WIB-string window (endDay
-  // null = still running / ongoing).
-  const windows: ActiveWindow[] = participants.map(p => ({
-    startDay: toWibDateString(p.startAt!),
-    endDay: p.status === 'RUNNING' ? null : toWibDateString(p.finalSubmittedAt ?? p.updatedAt),
-  }));
-  const paidDays = paidOrders.map(o => toWibDateString(o.paidAt!));
-
-  for (const d of dates) result.set(d, activeForDay(windows, paidDays, d));
-  return result;
+  // Bucket each participant by the WIB day they became active (startAt).
+  return bucketActiveByDay(participants.map(p => toWibDateString(p.startAt!)));
 }
 
 // Inclusive list of WIB date strings from `fromStr` to `toStr` (both YYYY-MM-DD).
@@ -194,9 +166,11 @@ export async function getReport(
     ...dates.map(d => getDayMetrics(d, productId)),
   ]);
 
+  // Active = participants who became active that WIB day (event count, like
+  // leads/purchase). Conv. Rate Active = active ÷ purchases of the same day.
   const series = seriesDates.map(m => {
-    const a = activeSeries.get(m.date);
-    return a ? { ...m, active: a.active, convRateActive: a.convRateActive } : m;
+    const active = activeSeries.get(m.date) ?? 0;
+    return { ...m, active, convRateActive: rate(active, m.purchase) };
   });
 
   return { today, series, snapshot };

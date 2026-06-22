@@ -196,6 +196,13 @@ model RateLimitConfig {
   updatedAt     DateTime @updatedAt
 }
 
+// Active outbound/inbound WhatsApp engine selector (slice D15, §24). Singleton row.
+model MessagingConfig {
+  id        String   @id @default("default") // singleton row
+  engine    String   @default("waha") // 'waha' | 'fonnte' — the single global active engine
+  updatedAt DateTime @updatedAt
+}
+
 // ── Challenge / reward module (§21) ────────────────────────────────────
 model Challenge {
   id                   String   @id @default(cuid())

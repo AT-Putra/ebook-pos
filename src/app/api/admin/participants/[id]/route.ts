@@ -5,8 +5,7 @@ import { db } from '@/lib/db';
 import { ParticipantStatus, Prisma } from '@prisma/client';
 import { percentLoss, renderTemplate } from '@/lib/challenge';
 import { serializeParticipant, challengeTiming } from '@/lib/challenge-serialize';
-import { sendTextHumanized } from '@/lib/waha';
-import { toChatId } from '@/lib/phone';
+import { getWaEngine } from '@/lib/messaging';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -128,7 +127,8 @@ async function sendFinalReceived(p: FinalReceivedParticipant): Promise<void> {
     return; // already sent (P2002) or transient — don't resend / don't block
   }
   try {
-    const result = await sendTextHumanized({ chatId: toChatId(p.customer.whatsapp), text: renderTemplate(tpl, p.challenge.contactInfo) });
+    const engine = await getWaEngine();
+    const result = await engine.sendText({ phone: p.customer.whatsapp, text: renderTemplate(tpl, p.challenge.contactInfo) });
     await db.challengeReminderLog.update({
       where: { participantId_key: { participantId: p.id, key: 'final_received' } },
       data: { wahaMessageId: result.id },

@@ -1,7 +1,7 @@
 import { Prisma, ParticipantStatus, WaLogStatus } from '@prisma/client';
 import { db } from './db';
 import { computeDueReminders, renderTemplate, type ChallengePhase } from './challenge';
-import { sendTextHumanized } from './waha';
+import { getWaEngine } from './messaging';
 import { toChatId } from './phone';
 import { logWaSend } from './wa-log';
 
@@ -39,10 +39,11 @@ export async function sendChallengeReminderOnce(args: {
     throw err;
   }
 
-  const chatId = toChatId(whatsapp);
+  const chatId = toChatId(whatsapp); // audit label for the WA log (engine-agnostic)
   const text = renderTemplate(template, contactInfo);
   try {
-    const result = await sendTextHumanized({ chatId, text });
+    const engine = await getWaEngine();
+    const result = await engine.sendText({ phone: whatsapp, text });
     await db.challengeReminderLog.update({
       where: { participantId_key: { participantId, key } },
       data: { wahaMessageId: result.id },

@@ -6,9 +6,9 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.15.0 |
+| PRD version in sync with | 0.16.0 |
 | Last updated | 2026-06-22 |
-| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback built (green) — pending VPS deploy** |
+| Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
 
 ## How to run
@@ -40,6 +40,7 @@
 - [x] **D5 — WA Logs** (§20.13): new `WaMessageLog` audit table (migration `20260622000000_add_wa_message_log`) of every **outbound** WA send (e-book/attachment delivery + challenge reminders) written best-effort from `lib/wa-log.ts` (wired into `delivery.ts` + `challenge-reminders.ts`); `/admin/wa-logs` (`WaLogs.tsx`, PageHeader+DataTable, filters program/status/category/date + **Resend** on FAILED delivery rows); API `GET /api/admin/wa-logs`; backfill `npm run wa-logs:backfill`. Inbound + test-send out of scope. Resolves open Q#10. *(built green: 163 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D4 (Leads half) — Leads list** (§20.14): `/admin/leads` (`LeadsList.tsx`) = log of every checkout submission (any status); API `GET /api/admin/leads` (program/status/date/search filters); DataTable + CSV/PDF export; per-row **Detail** modal + **Resend** (optional corrected WA) reusing `/api/admin/deliveries/[id]/resend`; pure `lib/leads.ts` (`formatIdr`/`leadStatusMeta`, tested). No schema change. PII shown in full. *(built green: 167 tests + tsc + build)*
 - [x] **D14 — Email fallback delivery** (§23): when any item fails on a WhatsApp delivery pass, the e-book + attachments are **also** emailed to the buyer (best-effort, idempotent once/order via `Delivery.emailFallbackSentAt`), in **parallel** with the unchanged WhatsApp retry. Provider = **Gmail SMTP + App Password** via `nodemailer`, isolated behind `lib/email.ts` (`isEmailConfigured`, pure `buildEbookEmail`, `sendEbookEmail`); wired into `delivery.ts` (`maybeSendEmailFallback`); `lib/files.ts` gains `readEbookAsBuffer`. Off unless `EMAIL_FALLBACK_ENABLED=true` + `GMAIL_USER`/`GMAIL_APP_PASSWORD` set. New migration `20260623000000_add_email_fallback`. New dep `nodemailer` (+ `@types/nodemailer`). Resolves open Q#3. *(built green; pending VPS deploy + migration)*
+- [x] **D15 — Switchable WhatsApp engine: WAHA ↔ Fonnte** (§24): new `lib/messaging.ts` `WaEngine` interface + DB singleton `MessagingConfig` (engine `waha`|`fonnte`, default `waha`, cached 10s) resolved via `getWaEngine()`; `lib/waha.ts` `wahaEngine` (unchanged wire behaviour) + new `lib/fonnte.ts` `fonnteEngine` (`api.fonnte.com/send`, `Authorization` token, bare `628…` target, binary multipart `file` 4 MB cap, server-side `typing`/`delay`). All 4 outbound call-sites (`delivery.ts`, `challenge-reminders.ts`, participant resend, test-send) switched. **Inbound switchable:** new `/api/webhooks/fonnte` (URL `?token=` shared-secret auth — Fonnte has no HMAC — plain-number sender, public-url media) + shared `lib/challenge-inbox.ts` (store/record/advance/ack core, also used by the refactored WAHA webhook). Engine picked in Pengaturan (`MessagingEngineSettings` → `GET`/`PUT /api/admin/messaging`); Fonnte token is a server-only env (`FONNTE_TOKEN`, never in DB/browser). New migration `20260624000000_add_messaging_config`; new optional env `FONNTE_TOKEN`/`FONNTE_WEBHOOK_SECRET`. *(built green: 211 tests + tsc + build; pending VPS deploy + migration)*
 - [ ] (later) D4 (Purchase half) PAID-only list · D7 Laporan export page
 
 ## In progress
@@ -211,6 +212,23 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-22 — **Switchable WhatsApp engine: WAHA ↔ Fonnte (PRD 0.16.0 §24, slice D15) — BUILT.** Owner
+  asked for a Fonnte engine alongside WAHA, switchable in Pengaturan. Reviewed the 2 outbound paths
+  (`sendFile` transactional, `sendTextHumanized` conversational) + the WAHA inbound webhook, then asked 3
+  scoping Qs → **outbound + inbound**, **token in env**, **one global engine**. Introduced `lib/messaging.ts`
+  (`WaEngine` interface `sendFile`/`sendText` keyed on a normalized `628…` phone + DB singleton
+  `MessagingConfig` resolved by `getWaEngine()`, cached 10s like rate-limit). `lib/waha.ts` `wahaEngine`
+  (zero wire change) + new `lib/fonnte.ts` `fonnteEngine` (`api.fonnte.com/send`, `Authorization` token,
+  bare target, binary multipart `file` 4 MB cap, server-side `typing`/`delay`; pure parse/idempotency
+  helpers). All 4 call-sites switched. New `/api/webhooks/fonnte` (URL `?token=` auth — Fonnte has no HMAC)
+  + extracted `lib/challenge-inbox.ts` (`findActiveChallengeOrderByWhatsapp` + `storeProofSubmission`)
+  shared by both webhooks (WAHA route refactored, keeps its LID wrapper). Pengaturan `MessagingEngineSettings`
+  card → `GET`/`PUT /api/admin/messaging` (warns when Fonnte selected but `FONNTE_TOKEN`/`FONNTE_WEBHOOK_SECRET`
+  unset; token never returned — inv. #6). New migration `20260624000000_add_messaging_config`; new optional
+  env `FONNTE_TOKEN`/`FONNTE_WEBHOOK_SECRET`; invariants #5/#13/#14 reworded engine-aware. 211 tests
+  (+`fonnte`/`messaging` suites) + tsc + build green. **Deploy:** rebuild image + run the migration; to use
+  Fonnte set the two env vars and point the Fonnte device webhook at
+  `https://<app>/api/webhooks/fonnte?token=<FONNTE_WEBHOOK_SECRET>`. WAHA stays the default (no action needed).
 - 2026-06-08 — **Prime never-contacted recipients before sending (PRD 0.11.6 §12.2.1).** Root cause of
   "new customer never gets the msg": WhatsApp E2E has no session for a number that never messaged the WAHA
   account first → API accepts the send but it stays `status: PENDING` (delivers fine once the customer

@@ -1,7 +1,7 @@
 import { DeliveryStatus, WaLogStatus } from '@prisma/client';
 import { db } from './db';
 import { readEbookAsBase64, readEbookAsBuffer } from './files';
-import { sendFile } from './waha';
+import { getWaEngine } from './messaging';
 import { toChatId } from './phone';
 import { logWaSend } from './wa-log';
 import { isEmailConfigured, sendEbookEmail } from './email';
@@ -112,7 +112,8 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
 
   const { order, items } = delivery;
   const { customer, product } = order;
-  const chatId = toChatId(customer.whatsapp);
+  const chatId = toChatId(customer.whatsapp); // audit label for the WA log (engine-agnostic)
+  const engine = await getWaEngine();
 
   let anyFailed = false;
 
@@ -126,8 +127,8 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
 
     try {
       const base64Data = await readEbookAsBase64(item.filePath);
-      const result = await sendFile({
-        chatId,
+      const result = await engine.sendFile({
+        phone: customer.whatsapp,
         mimeType: item.kind === 'ebook' ? product.mimeType : 'application/pdf',
         filename: item.fileName,
         base64Data,

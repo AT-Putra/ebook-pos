@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { env } from './env';
+import { toChatId } from './phone';
+import type { WaEngine } from './messaging';
 
 // INVARIANT: WAHA_BASE_URL must be https:// — validated in env.ts at startup.
 // This module enforces it again at call time as a defence-in-depth check.
@@ -238,3 +240,20 @@ export async function sendTextHumanized(p: {
   await logWahaSendDev('sendText', p.chatId, data);
   return { id: data.id ?? '' };
 }
+
+// ── Engine adapter (slice D15, §24.2) ───────────────────────────────────────
+// Thin wrapper exposing WAHA through the provider-agnostic WaEngine interface. Takes the
+// normalized 628… phone and formats it to a `…@c.us` chatId; all WAHA behaviour is unchanged.
+
+export const wahaEngine: WaEngine = {
+  name: 'waha',
+  sendFile: p =>
+    sendFile({
+      chatId: toChatId(p.phone),
+      mimeType: p.mimeType,
+      filename: p.filename,
+      base64Data: p.base64Data,
+      caption: p.caption,
+    }),
+  sendText: p => sendTextHumanized({ chatId: toChatId(p.phone), text: p.text, messageId: p.messageId }),
+};

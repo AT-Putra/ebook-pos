@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
-import { sendTextHumanized } from '@/lib/waha';
-import { normalizeIndonesianPhone, toChatId, PhoneNormalizationError } from '@/lib/phone';
+import { getWaEngine } from '@/lib/messaging';
+import { normalizeIndonesianPhone, PhoneNormalizationError } from '@/lib/phone';
 
 const bodySchema = z.object({
   whatsapp: z.string().min(1),
@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await sendTextHumanized({ chatId: toChatId(normalized), text: parsed.data.text });
+    const engine = await getWaEngine();
+    const result = await engine.sendText({ phone: normalized, text: parsed.data.text });
     return NextResponse.json({ ok: true, messageId: result.id });
   } catch (err) {
     return NextResponse.json(

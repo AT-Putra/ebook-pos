@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.15.0 |
+| Version | 0.16.0 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,31 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.16.0** (2026-06-22) — **Switchable WhatsApp engine: WAHA ↔ Fonnte (slice D15) — BUILT.** The
+  WhatsApp channel is no longer hard-wired to WAHA. A new `lib/messaging.ts` defines a small **`WaEngine`**
+  interface (`sendFile` + `sendText`, both keyed on a normalized `628…` phone) and a DB-backed singleton
+  **`MessagingConfig`** (one row, `engine = 'waha' | 'fonnte'`, default `waha`) that selects the **single
+  global active engine** for all OUTBOUND sends. The existing WAHA code becomes the `wahaEngine` adapter
+  (unchanged wire behaviour — still `…@c.us`, base64 `file.data`, the humanized sendSeen/typing sequence,
+  recipient priming, LID resolution); a new **`lib/fonnte.ts`** is the `fonnteEngine` adapter (single
+  endpoint `POST https://api.fonnte.com/send`, header `Authorization: <FONNTE_TOKEN>`, plain `628…` target,
+  text via `message`, files via a **binary multipart `file`** upload — never a public `url`, invariant #4 —
+  and humanization delegated to Fonnte's server-side `typing`/`delay`). All four send call-sites
+  (`delivery.ts`, `challenge-reminders.ts`, the participant resend, the test-send) now resolve the active
+  engine via `getWaEngine()` instead of importing `waha` directly. **Inbound is switchable too:** a new
+  **`/api/webhooks/fonnte`** route captures challenge proof videos when Fonnte is active — Fonnte sends a
+  plain phone `sender` (no `…@lid`, so no LID dance), media as a public `url` (downloaded with no auth
+  header), and provides **no HMAC**, so the route authenticates via a **shared-secret token in the webhook
+  URL** (`?token=…` constant-time-compared to `FONNTE_WEBHOOK_SECRET`, fails closed when unset). The
+  idempotency-critical inbound core (match order → upsert participant → store media → record submission →
+  advance status → `proof_received` ack) is extracted to **`lib/challenge-inbox.ts`** and shared by BOTH
+  the WAHA and Fonnte webhooks (the WAHA route keeps its LID-resolution wrapper). The engine is chosen in
+  **Pengaturan** (new `MessagingEngineSettings` card → APIs `GET`/`PUT /api/admin/messaging`); the Fonnte
+  **token is a server-only env var** (`FONNTE_TOKEN`, invariant #6 — never entered/stored in the DB or sent
+  to the browser), the settings GET only reports whether it is configured. New migration
+  `20260624000000_add_messaging_config`; new optional env `FONNTE_TOKEN` + `FONNTE_WEBHOOK_SECRET` (§8).
+  Caveat: **Fonnte caps an attachment at 4 MB** — a larger e-book fails the Fonnte send (recorded, retried)
+  and the §23 email fallback covers the buyer. Invariant #5/#13/#14 reworded to be engine-aware. §24.
 - **0.15.0** (2026-06-22) — **Email fallback delivery (slice D14) — BUILT.** When a WhatsApp delivery
   item fails, the e-book + every attachment is **also** emailed to the buyer (best-effort, idempotent —
   once per order via `Delivery.emailFallbackSentAt`), in **parallel** with the normal WhatsApp retry
@@ -244,6 +269,10 @@ WAHA_BASE_URL=https://your-instance.waha-provider.example   # MUST be https://
 WAHA_API_KEY=
 WAHA_SESSION=default
 WAHA_WEBHOOK_SECRET=  # shared secret to authenticate WAHA -> /api/webhooks/waha inbound calls (§21)
+
+# Fonnte (alternative WhatsApp engine, D15 §24) — optional; only needed when the active engine is 'fonnte'
+FONNTE_TOKEN=          # server-only device token (sent as the Authorization header to api.fonnte.com)
+FONNTE_WEBHOOK_SECRET= # shared secret in the Fonnte inbound webhook URL: /api/webhooks/fonnte?token=<this>
 
 # Files (local, private)
 EBOOK_FILES_DIR=/data/ebooks            # mounted private volume; MUST be outside the web root / public dir
@@ -1922,3 +1951,90 @@ The feature is **off unless configured**. `isEmailConfigured()` is true only whe
 - [ ] An email-send failure is recorded (`emailFallbackError`) and never fails/blocks the WhatsApp send;
       it is retried by the cron until it succeeds (within the WhatsApp attempt window).
 - [ ] Pure helpers (`isEmailConfigured` decision, `buildEbookEmail` subject/body) are unit-tested.
+
+## 24. Switchable WhatsApp engine — WAHA ↔ Fonnte (slice D15) `[DRAFT]`
+
+The WhatsApp channel is pluggable. The operator chooses **one** active provider for **all** outbound
+WhatsApp (e-book/attachment delivery + every challenge reminder/ack + the operator test-send) and for
+inbound challenge proof-video capture. Default and reference engine = **WAHA** (unchanged). New engine =
+**Fonnte** (`https://fonnte.com`). Switching is a single setting in **Pengaturan**; no redeploy.
+
+### 24.1 The engine abstraction (`lib/messaging.ts`)
+A minimal interface keeps the rest of the app provider-agnostic:
+```ts
+interface WaEngine {
+  name: 'waha' | 'fonnte';
+  sendFile(p: { phone: string; mimeType; filename; base64Data; caption? }): Promise<{ id }>;
+  sendText(p: { phone: string; text; messageId? }): Promise<{ id }>;
+}
+```
+- `phone` is the **normalized `628…` digits** (`lib/phone.ts`); each adapter formats it (WAHA → `…@c.us`,
+  Fonnte → bare). Callers no longer build the chatId.
+- `getActiveEngineName()` reads the `MessagingConfig` singleton (cached 10s, cleared on PUT — same pattern
+  as `RateLimitConfig`); `getWaEngine()` returns the matching adapter. Both async; all call-sites already are.
+- `sendText` is the **humanized** path (anti-spam, §12.2.1): WAHA runs the sendSeen→typing→send sequence;
+  Fonnte delegates to its server-side `typing`/`delay` params. `sendFile` is the transactional path (exempt).
+
+### 24.2 WAHA adapter (`wahaEngine`, in `lib/waha.ts`)
+Thin wrapper over the existing `sendFile` / `sendTextHumanized` (which keep their `chatId` signatures and
+all current behaviour: priming, LID resolution, `[waha-send]` logging). **Zero wire change** vs. 0.15.0.
+
+### 24.3 Fonnte adapter (`fonnteEngine`, in `lib/fonnte.ts`)
+- One endpoint: `POST https://api.fonnte.com/send`. Auth header `Authorization: <FONNTE_TOKEN>` (no
+  `Bearer` prefix). Throws a clear error if `FONNTE_TOKEN` is unset.
+- **Text:** form-urlencoded `{ target, message, typing: true, delay }`. `target` = the bare `628…` number.
+- **File:** `multipart/form-data` `{ target, file: <binary Blob>, filename, message: <caption>, typing }`.
+  The file is the **binary** read from the private `EBOOK_FILES_DIR` — **never** the public `url` param
+  (invariant #4 / #5). **Fonnte caps a file at 4 MB**; a larger file fails the send (recorded + retried),
+  and the §23 email fallback delivers the e-book instead.
+- **Response:** `{ status: true, id: ["…"], detail, … }` on success; `{ status: false, reason }` on failure.
+  The adapter throws on `status !== true` so `delivery.ts`/reminders treat it exactly like a WAHA failure.
+
+### 24.4 Inbound (challenge proof videos) — engine-aware
+The idempotency-critical core (dedupe on message id → match a PAID challenge order by WhatsApp number →
+upsert the participant → download+store the private video → record the `ChallengeSubmission` → advance
+status → `proof_received` ack) is extracted to **`lib/challenge-inbox.ts`** and shared by both webhooks.
+- **WAHA** `/api/webhooks/waha` (unchanged contract, §21.6): HMAC-SHA512 `X-Webhook-Hmac`; sender may be a
+  `…@lid` → resolved via the LIDs API; media downloaded with `X-Api-Key`. Keeps its LID wrapper, then calls
+  the shared core.
+- **Fonnte** `/api/webhooks/fonnte` (new): Fonnte POSTs **form fields** (`sender`, `message`, `name`, `url`,
+  `filename`, `extension`); `sender` is a **plain phone number** (no LID) → `normalizeIndonesianPhone`;
+  media is a **public `url`** downloaded with **no auth header**. **Fonnte provides no HMAC**, so the route
+  authenticates with a **shared secret in the webhook URL** — `?token=…` constant-time-compared to
+  `FONNTE_WEBHOOK_SECRET`, **fails closed** when the secret is unset (configure the Fonnte device webhook as
+  `https://<host>/api/webhooks/fonnte?token=<FONNTE_WEBHOOK_SECRET>`). Idempotency: Fonnte does not
+  guarantee a message id, so the key is the payload `id` if present else a SHA-256 of `sender|url|message`,
+  stored in `ChallengeSubmission.wahaMessageId` (the existing unique column — reused as the generic
+  provider-message id; not renamed to avoid a wide migration).
+
+### 24.5 Configuration & data model
+- **Engine selection** — `MessagingConfig` singleton (`id="default"`, `engine String @default("waha")`,
+  `updatedAt`). Migration `20260624000000_add_messaging_config`. Chosen in **Pengaturan** via a new
+  `MessagingEngineSettings` card → `GET`/`PUT /api/admin/messaging` (`requireAdmin`; PUT clears the cache).
+  The GET also returns `fonnteConfigured`/`fonnteWebhookConfigured` booleans (derived from env) so the UI
+  can warn when Fonnte is selected but its env is missing — **the token itself is never returned** (inv. #6).
+- **Env (all optional, §8):** `FONNTE_TOKEN` (server-only device token), `FONNTE_WEBHOOK_SECRET` (inbound
+  webhook shared secret). WAHA's env is untouched and still required (it is the default engine).
+
+### 24.6 Invariants touched (reworded, engine-aware — not weakened)
+- **#5** now reads "the **active outbound engine** sends over HTTPS only and never hands a private file to
+  the provider as a URL" — WAHA `file.data` base64 / Fonnte multipart `file` binary; both HTTPS; neither
+  uses a public file URL.
+- **#13** inbound auth is **per engine**: WAHA = HMAC-SHA512; Fonnte = the URL shared-secret token (Fonnte
+  exposes no HMAC). Both fail closed when their secret is unset; both stay idempotent on the stored message id.
+- **#14** "humanized send": WAHA via the explicit sequence; Fonnte via its server-side `typing`/`delay`.
+
+### 24.7 Acceptance criteria
+- [ ] With `engine=waha`, every outbound send and the inbound webhook behave byte-for-byte as in 0.15.0.
+- [ ] With `engine=fonnte` + `FONNTE_TOKEN` set, the e-book + attachments deliver via Fonnte (binary `file`,
+      never a URL), challenge reminders/acks/test-send go via Fonnte with `typing` on, and inbound proof
+      videos posted to `/api/webhooks/fonnte?token=…` are captured exactly once.
+- [ ] Switching the engine in Pengaturan takes effect within the 10s config cache (immediately after PUT).
+- [ ] `/api/webhooks/fonnte` rejects a missing/incorrect `token` (and any call when `FONNTE_WEBHOOK_SECRET`
+      is unset) with no side effects; inbound is idempotent across duplicate deliveries.
+- [ ] Selecting Fonnte without `FONNTE_TOKEN` surfaces a clear config warning in the UI and a clear send
+      error (no silent partial send); the Fonnte token is never sent to the browser or stored in the DB.
+- [ ] A Fonnte send failure (incl. the >4 MB cap) is recorded and retried exactly like a WAHA failure, and
+      the §23 email fallback still fires.
+- [ ] Pure helpers (Fonnte payload/response parsing, `MessagingConfig` engine resolution, inbound
+      idempotency-key derivation) are unit-tested.

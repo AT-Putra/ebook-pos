@@ -15,7 +15,11 @@ done, idempotent, and recoverable.
 - PostgreSQL 17 + Prisma 7 + `@prisma/adapter-pg` (driver adapter required by Prisma 7)
 - Zod 4 for input + env validation
 - Midtrans Snap (payments) + webhook
-- 3rd-party WAHA over HTTPS (WhatsApp delivery), base64 file payload
+- **Switchable WhatsApp engine (D15, §24): WAHA (default) ↔ Fonnte** — chosen in Pengaturan
+  (`MessagingConfig` singleton). WAHA = self-hosted, base64 file payload, `…@c.us`, humanized sendSeen/typing
+  sequence + priming + LID resolution. Fonnte = `https://api.fonnte.com/send`, `Authorization: <FONNTE_TOKEN>`,
+  bare `628…` target, binary multipart `file` (4 MB cap), server-side `typing`/`delay`. Both HTTPS, never a
+  public file URL (inv. #4/#5). Resolve the active engine via `lib/messaging.ts` `getWaEngine()`
 - `nodemailer` over Gmail SMTP (App Password) — **email fallback** for failed WA delivery (D14, §23)
 - Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host
 - Dashboard tables: TanStack Table (`@tanstack/react-table`); export: `jspdf` + `jspdf-autotable` (PDF), `Blob` (CSV)
@@ -37,8 +41,9 @@ done, idempotent, and recoverable.
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
 - `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `Card`/`CardStack`/`PageHeader` (shared layout primitives — §20.12), `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload), `WaLogs` (D5: outbound WA send audit table + filters + Resend), `LeadsList` (D4: log of every checkout submission + filters + Detail/Resend), `UserManager` (D6: admin-account add/rename/reset-password/(de)activate card)
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`, `challenge-reminders`, `wa-log`, `leads`, `admin-users`, `email`)
-- `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit + **admin user mgmt** (D6, §20.15, `UserManager`); APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`, `/api/admin/users[/id]`
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`, `challenge-reminders`, `wa-log`, `leads`, `admin-users`, `email`, `messaging` (D15 engine resolver/registry), `fonnte` (D15 Fonnte adapter + inbound parse), `challenge-inbox` (D15 shared inbound proof-capture core))
+- `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit + **WhatsApp engine switch** (D15, §24, `MessagingEngineSettings`) + **admin user mgmt** (D6, §20.15, `UserManager`); APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`, `/api/admin/messaging`, `/api/admin/users[/id]`
+- `src/app/api/webhooks/fonnte/route.ts` — **D15 Fonnte inbound** proof-video webhook (active when engine=fonnte). No HMAC from Fonnte → auth via `?token=` shared secret (`FONNTE_WEBHOOK_SECRET`, constant-time, fails closed). Plain-number `sender`, public `url` media. Shares `lib/challenge-inbox.ts` with the WAHA webhook.
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
 - `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`; templates card has a **test-send**: per-template "Kirim tes" → `POST /api/admin/whatsapp/test`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`, `/whatsapp/test`. `lib/challenge.ts` = pure day/phase/%loss/status logic + `computeDueReminders` (D12). **D12 automation:** Midtrans PAID auto-creates a participant (`AWAITING_INITIAL`) **and instantly sends the `after_purchase` instructions** (via `sendChallengeReminderOnce`, fire-and-forget, idempotent — not waiting for the cron); cron `/api/cron/challenge-reminders` (hourly, `isCron`) sends the rest of the reminder schedule once each (idempotent via `ChallengeReminderLog`) + auto-eliminates; `final_received` sent on verify-final. Reminder send = shared `sendChallengeReminderOnce` (reserve-then-send) used by both webhook + cron. Rules: `docs/challenge-rules.md`.
 - `src/app/admin/(dashboard)/wa-logs/` — **WA Logs (D5, §20.13):** outbound WA send audit (`WaLogs.tsx`).
@@ -72,8 +77,11 @@ done, idempotent, and recoverable.
 4. **Private files**: the e-book/attachments under `EBOOK_FILES_DIR` and challenge **proof videos** under
    `CHALLENGE_MEDIA_DIR` are OUTSIDE the web root. NEVER under `public/`, never served statically, never
    given to WAHA as a URL; proof videos are only ever streamed to an authenticated admin.
-5. **WAHA over HTTPS only**: `WAHA_BASE_URL` must start with `https://`; the app refuses to start /
-   send otherwise. Send the file as base64 in `file.data` (never `file.url`). API key in `X-Api-Key`.
+5. **Active engine over HTTPS only, never a file URL** (engine-aware, §24.6): WAHA `WAHA_BASE_URL` must
+   start with `https://` (refuses otherwise); the file goes as base64 in `file.data` (never `file.url`),
+   API key in `X-Api-Key`. Fonnte sends to `https://api.fonnte.com/send` with the file as a binary
+   multipart `file` (never the public `url` param), token in `Authorization`. Neither engine ever hands
+   a private file to the provider as a URL.
 6. **No server key / secrets to the client.** Only the Snap token / redirect URL goes to the browser.
 7. **Validate all input with zod.** Normalize Indonesian WhatsApp numbers to `62…@c.us`
    (`08…`→`62…`, `8…`→`62…`); reject invalid numbers at checkout.
@@ -91,9 +99,13 @@ done, idempotent, and recoverable.
     (start = 00:00:00, end = 23:59:59.999 inclusive); null bound = unbounded. Uploaded PDFs follow
     invariant #4 (private, traversal-safe name, atomic write, never `public/`).
 13. **Challenge (§21)**: one `Challenge` per program (`productId @unique`), one `ChallengeParticipant`
-    per PAID `Order` (`orderId @unique`). `/api/webhooks/waha` subscribes to WAHA's **`message`** event;
-    auth = **HMAC-SHA512** of the raw body in header `X-Webhook-Hmac` (key = `WAHA_WEBHOOK_SECRET`,
-    constant-time compare, like Midtrans); **idempotent** on `payload.id` (→ `wahaMessageId`). Inbound
+    per PAID `Order` (`orderId @unique`). **Inbound auth is per engine** (§24.4): `/api/webhooks/waha`
+    subscribes to WAHA's **`message`** event, auth = **HMAC-SHA512** of the raw body in header
+    `X-Webhook-Hmac` (key = `WAHA_WEBHOOK_SECRET`); `/api/webhooks/fonnte` (Fonnte exposes no HMAC) auth =
+    a **shared secret in the URL** `?token=` compared constant-time to `FONNTE_WEBHOOK_SECRET`. Both
+    fail closed when their secret is unset and are **idempotent** on the stored provider message id
+    (→ `ChallengeSubmission.wahaMessageId`; WAHA `payload.id`, Fonnte `id`-or-hash). The store/record/
+    advance/ack core is shared via `lib/challenge-inbox.ts`. WAHA inbound
     media arrives as `payload.media.url` — download it with `X-Api-Key: WAHA_API_KEY` (https only) and
     store under `CHALLENGE_MEDIA_DIR` (invariant #4). **Sender id may be a privacy `…@lid` (not a phone
     number)** — `lib/waha.ts` `parseJid`/`resolveLidToPhone`/`resolvePhoneToLid` map it via WAHA's LIDs
@@ -103,14 +115,16 @@ done, idempotent, and recoverable.
     (`ChallengeReminderLog` key `proof_received:<msgId>`), skipped if blank/rejected (§21.6, 0.11.3).
     Outbound WA reminders + auto phase/elimination cron are D12. Challenge is additive: never touches the
     buyer checkout/delivery flow.
-14. **Humanized WA sends (§12.2.1, anti-spam — ALWAYS)**: every conversational/reminder text send (D12
-    reminders, any reply) MUST go through `lib/waha.ts` `sendTextHumanized`: `sendSeen` → `startTyping` →
+14. **Humanized WA sends (§12.2.1, anti-spam — ALWAYS; engine-aware §24.6)**: every conversational/reminder
+    text send goes through the active engine's `sendText` (`getWaEngine()`). For **WAHA** that is
+    `lib/waha.ts` `sendTextHumanized`: `sendSeen` → `startTyping` →
     wait a random interval scaled to message length → `stopTyping` → `sendText` (all `X-Api-Key`, https).
     The transactional e-book `sendFile` on PAID is exempt (may still typing-indicate). **Recipient priming:**
     BOTH send paths call `primeRecipient(chatId)` first — `checkNumberExists` (`GET /api/contacts/check-exists`)
     to resolve + prime the E2E session for a never-contacted number (else the send is accepted but stuck
     `PENDING`/undelivered), then a randomized `primeDelayMs` (1.5–3.5s). Best-effort, never blocks the send.
-    Debug: `[waha-send]` log turns on with `NODE_ENV=development` OR env `WAHA_LOG_SENDS=1`.
+    Debug: `[waha-send]` log turns on with `NODE_ENV=development` OR env `WAHA_LOG_SENDS=1`. For **Fonnte**
+    humanization is delegated to its server-side `typing`/`delay` params (no priming/LID needed — bare number).
 
 ## Status mapping (Midtrans → OrderStatus)
 `settlement`/`capture+accept` → PAID · `capture+challenge` → PENDING (no delivery) · `pending` → PENDING ·
@@ -142,6 +156,13 @@ backfill via `npm run wa-logs:backfill`. Deploy needs only the migration (no new
 no schema change (rebuild image only).
 **Built, pending deploy: D6 User management** (§20.15) — admin-account CRUD card in Pengaturan
 (add/rename/reset-password/(de)activate); APIs `/api/admin/users[/id]`; no schema change (rebuild only).
+**Built, pending deploy: D15 Switchable WhatsApp engine** (§24) — WAHA ↔ Fonnte, chosen in Pengaturan
+(`MessagingEngineSettings` → `/api/admin/messaging`, `MessagingConfig` singleton). `lib/messaging.ts`
+resolves the active engine (`getWaEngine()`); `lib/waha.ts` `wahaEngine` + new `lib/fonnte.ts` `fonnteEngine`
+implement a shared `WaEngine` (`sendFile`/`sendText`, keyed on a normalized `628…` phone). All 4 outbound
+call-sites switched. New `/api/webhooks/fonnte` inbound (token-auth) + shared `lib/challenge-inbox.ts`.
+Deploy needs migration `20260624000000_add_messaging_config` + (for Fonnte) env `FONNTE_TOKEN`,
+`FONNTE_WEBHOOK_SECRET`, and the Fonnte device webhook → `/api/webhooks/fonnte?token=<FONNTE_WEBHOOK_SECRET>`.
 **Built, pending deploy: D14 Email fallback** (§23) — when a WhatsApp delivery item fails, the e-book +
 attachments are **also** emailed to the buyer (best-effort, idempotent once/order via
 `Delivery.emailFallbackSentAt`), **in parallel** with the unchanged WA retry. Gmail SMTP + App Password
@@ -206,3 +227,10 @@ Each slice: ends green (builds + tests pass), is committed, then PROGRESS.md is 
 ## Open questions (resolve before the affected slice — see PRD §16)
 Single product vs catalog · tracking-ID semantics · email fallback if WhatsApp permanently fails ·
 PII retention period · 3rd-party WAHA provider limits (max request body size, IP allowlist, auth).
+
+## LSP
+When tracing where a symbol is defined or finding all references to it, use LSP (goToDefinition, findReferences, hover) instead of Grep. LSP gives exact results; Grep gives text matches.
+
+Use Grep/Glob for discovery (finding files, searching patterns). Use LSP for understanding (definitions, references, type info).
+
+After locating a file with Grep/Glob, use LSP to navigate within it rather than reading the whole file.

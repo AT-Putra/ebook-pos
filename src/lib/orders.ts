@@ -61,6 +61,75 @@ export function generateOrderCode(): string {
   return `ORD-${date}-${suffix}`;
 }
 
+// ── Checkout dedup (D18, §27) ────────────────────────────────────────────────
+// A repeat checkout for the SAME customer (email+whatsapp) + product reuses the existing lead
+// instead of creating a duplicate, branching on its status. Pure decision → unit-tested.
+
+export type CheckoutActionKind = 'already_paid' | 'continue' | 'renew' | 'new';
+
+export type CheckoutDecision<T> =
+  | { kind: 'already_paid'; order: T }
+  | { kind: 'continue'; order: T }
+  | { kind: 'renew'; order: T }
+  | { kind: 'new' };
+
+/**
+ * Decides what a repeat checkout should do, given the customer's existing orders for the product
+ * (newest first). Rules (owner-confirmed):
+ *  - any PAID order → 'already_paid' (show the status page);
+ *  - else look at the LATEST order: PENDING with a payment URL → 'continue'; PENDING without one or
+ *    EXPIRED → 'renew' (new Midtrans transaction on the same lead); FAILED/CANCELLED/REFUNDED → 'new'.
+ */
+export function decideCheckoutAction<T extends { status: OrderStatus; snapRedirectUrl: string | null }>(
+  ordersNewestFirst: T[],
+): CheckoutDecision<T> {
+  const paid = ordersNewestFirst.find(o => o.status === OrderStatus.PAID);
+  if (paid) return { kind: 'already_paid', order: paid };
+
+  const latest = ordersNewestFirst[0];
+  if (!latest) return { kind: 'new' };
+  if (latest.status === OrderStatus.PENDING) {
+    return latest.snapRedirectUrl ? { kind: 'continue', order: latest } : { kind: 'renew', order: latest };
+  }
+  if (latest.status === OrderStatus.EXPIRED) return { kind: 'renew', order: latest };
+  return { kind: 'new' }; // FAILED / CANCELLED / REFUNDED latest → fresh order
+}
+
+/** Pure: trackingId is only set when the existing value is null/empty and an incoming one is present. */
+export function shouldSetTracking(existing: string | null | undefined, incoming: string | null | undefined): boolean {
+  return (!existing || existing.trim() === '') && !!incoming && incoming.trim() !== '';
+}
+
+/**
+ * Renews an EXPIRED/stale order for a fresh payment on the SAME lead row: assigns a NEW orderCode
+ * (the old Midtrans order_id can't be reused), flips status back to PENDING, refreshes the amount,
+ * and clears the old payment fields. Returns the new orderCode. Retries on code collision.
+ */
+export async function renewOrderForPayment(orderId: string, amountIdr: number): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const orderCode = generateOrderCode();
+    try {
+      await db.order.update({
+        where: { id: orderId },
+        data: {
+          orderCode,
+          status: OrderStatus.PENDING,
+          amountIdr,
+          midtransTransactionId: null,
+          paidAt: null,
+          snapToken: null,
+          snapRedirectUrl: null,
+        },
+      });
+      return orderCode;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt < 4) continue;
+      throw err;
+    }
+  }
+  throw new Error('Could not renew the order code after retries.');
+}
+
 /** Creates a PENDING order, retrying on the (improbable) orderCode unique collision. */
 export async function createPendingOrder(input: {
   customerId: string;

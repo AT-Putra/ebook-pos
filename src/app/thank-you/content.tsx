@@ -3,9 +3,13 @@
 import { useSearchParams } from 'next/navigation';
 
 export function ThankYouContent({
+  orderStatus,
+  paidAtText,
   contactInfo,
   waLink,
 }: {
+  orderStatus: string | null;
+  paidAtText: string | null;
   contactInfo: string | null;
   waLink: string | null;
 }) {
@@ -13,11 +17,14 @@ export function ThankYouContent({
   const orderCode = params.get('order_id') ?? params.get('orderCode');
   const status = params.get('transaction_status');
 
-  const isPaid = !status || status === 'settlement' || status === 'capture';
+  // Confirmed by the DB (already paid — e.g. a repeat checkout for a product already bought).
+  const confirmedPaid = orderStatus === 'PAID';
+  // Optimistic (just came back from Midtrans before the webhook ran).
+  const optimisticPaid = !status || status === 'settlement' || status === 'capture';
 
   return (
     <>
-      <h1>{isPaid ? '🎉 Pembayaran Berhasil!' : 'Status Pesanan'}</h1>
+      <h1>{confirmedPaid ? '✅ Pembelian Selesai' : optimisticPaid ? '🎉 Pembayaran Berhasil!' : 'Status Pesanan'}</h1>
 
       {orderCode && (
         <p style={{ marginTop: 8, color: '#555', fontSize: '0.9rem' }}>
@@ -25,7 +32,21 @@ export function ThankYouContent({
         </p>
       )}
 
-      {isPaid ? (
+      {confirmedPaid ? (
+        <>
+          <p style={{ marginTop: 16 }}>
+            Kamu sudah menyelesaikan pembelian produk ini.
+          </p>
+          {paidAtText && (
+            <p style={{ marginTop: 8, fontSize: '0.9rem', color: '#555' }}>
+              Pembelian diselesaikan pada <strong>{paidAtText}</strong>.
+            </p>
+          )}
+          <p style={{ marginTop: 8, fontSize: '0.9rem', color: '#555' }}>
+            E-book sudah dikirim ke WhatsApp kamu. Jika belum kamu terima, silakan hubungi CS kami di bawah.
+          </p>
+        </>
+      ) : optimisticPaid ? (
         <>
           <p style={{ marginTop: 16 }}>
             Terima kasih! E-book akan segera dikirim ke WhatsApp kamu dalam beberapa menit.

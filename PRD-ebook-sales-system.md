@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.18.3 |
+| Version | 0.19.0 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,20 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.19.0** (2026-06-23) — **Checkout deduplicates repeat leads (slice D18) — BUILT.** A repeat checkout
+  for the **same customer (email+whatsapp) + product** no longer creates a duplicate lead. After the customer
+  upsert, `/api/checkout` looks up that customer's orders for the product and (pure `decideCheckoutAction`,
+  unit-tested) branches: **any PAID** → return a `redirectUrl` to the **status page** (`/thank-you?order_id=…`,
+  which now shows "Pembelian Selesai" + the WIB purchase date + CS contact; the order is left untouched to
+  avoid retro conversion attribution); **latest PENDING with a payment URL** → resume it (reuse the stored
+  Snap redirect); **latest EXPIRED (or PENDING w/o URL)** → `renewOrderForPayment` flips the SAME lead back to
+  PENDING with a **new orderCode** (the expired Midtrans order_id can't be reused) + a fresh Snap; **latest
+  FAILED/CANCELLED/REFUNDED** → treated as no lead → a brand-new order (owner-confirmed). **trackingId is only
+  set when the existing value is null/empty** (`shouldSetTracking`); a PAID order's trackingId is never
+  touched. The response always carries a `redirectUrl`, so the `[slug]` form and landing pages need **no
+  change** (they already redirect to it). No schema/env change. Owner decisions (2026-06-23): other final
+  statuses → new checkout; prioritize PAID then latest; expired → new transaction on the same lead; paid →
+  dedicated status page. Plan: `docs/`(inline). §27.
 - **0.18.3** (2026-06-23) — **Thank-you page shows CS contact for help.** The post-payment `/thank-you`
   page now displays a "Butuh bantuan?" box with the operator's CS contact, taken from the challenge config's
   **Kontak (info lebih lanjut)** field (`Challenge.contactInfo`). `page.tsx` is now a server component that
@@ -2195,3 +2209,39 @@ updatedAt }`. No new env.
 - [ ] Checkout/delivery are never blocked or failed by the postback.
 - [ ] `postbackUrl` validation rejects a non-https URL or one missing `{trxid}`.
 - [ ] Pure `renderPostbackUrl` is unit-tested.
+
+## 27. Checkout dedup for repeat leads (slice D18) `[STABLE]`
+
+A repeat checkout for the **same customer (email+whatsapp) + product** reuses the existing lead instead of
+creating a duplicate `Order`, branching on its status. Pure decision in `lib/orders.ts` `decideCheckoutAction`
+(unit-tested); orchestrated in `/api/checkout` after the customer upsert.
+
+### 27.1 Branches (owner-confirmed 2026-06-23)
+- **Any PAID** order for the customer+product → **already purchased**: return `redirectUrl` =
+  `${APP_BASE_URL}/thank-you?order_id=<code>`. The status page shows "Pembelian Selesai", the **WIB purchase
+  date** (`paidAt`), and the **CS contact** (`Challenge.contactInfo`) in case the e-book wasn't received. The
+  order is **not modified** (avoids retroactively attributing the past conversion).
+- **Latest PENDING with a stored payment URL** → **continue**: return the existing `snapToken`/
+  `snapRedirectUrl` so the buyer resumes the pending payment.
+- **Latest EXPIRED** (or PENDING without a URL) → **renew**: `renewOrderForPayment` assigns a **new orderCode**
+  (the expired Midtrans `order_id` can't be reused), flips the same lead back to `PENDING`, refreshes the
+  amount, clears old payment fields, and a **fresh Snap** is issued. One lead row — no duplicate.
+- **Latest FAILED / CANCELLED / REFUNDED** → treated as **no existing lead** → a brand-new order.
+- **PAID priority:** if any PAID exists it wins; otherwise the **latest** order decides.
+
+### 27.2 trackingId
+Only set on the reused order when the existing value is null/empty and an incoming one is present
+(`shouldSetTracking`); never overwritten. A PAID order's trackingId is never touched.
+
+### 27.3 Contract / frontend
+The response always includes a `redirectUrl` (Snap URL, or the status page for PAID), so the `[slug]`
+`CheckoutForm` and the external landing pages need **no change** — they already redirect to `redirectUrl`.
+No schema/env change.
+
+### 27.4 Acceptance criteria
+- [ ] A second checkout with the same email+whatsapp+product does not create a second `Order` (unless the
+      latest is FAILED/CANCELLED/REFUNDED).
+- [ ] PAID → status page with the purchase date + CS contact; the order is unchanged.
+- [ ] PENDING → resumes the same Snap payment; EXPIRED → a new Snap on the same lead (new orderCode, PENDING).
+- [ ] trackingId is set only when previously empty; never overwritten; untouched on PAID.
+- [ ] Pure `decideCheckoutAction` + `shouldSetTracking` are unit-tested; build/tests green.

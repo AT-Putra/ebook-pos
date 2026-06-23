@@ -100,6 +100,12 @@ done, idempotent, and recoverable.
    (`08…`→`62…`, `8…`→`62…`); reject invalid numbers at checkout.
 8. **Currency is IDR**, integer amounts (no decimals).
 9. **No customer login** in v1 — checkout is a plain form (name, email, WhatsApp, optional trackingId).
+   **Checkout dedup (D18, §27):** a repeat checkout for the same customer (email+whatsapp) + product reuses
+   the existing lead — `lib/orders.ts` `decideCheckoutAction`: any PAID → status page (`/thank-you?order_id=`,
+   shows purchase date + CS contact, order untouched); latest PENDING(+URL) → resume Snap; EXPIRED/PENDING(no
+   URL) → `renewOrderForPayment` (new orderCode, same lead → PENDING) + fresh Snap; FAILED/CANCELLED/REFUNDED
+   → new order. `trackingId` set only when previously empty (`shouldSetTracking`), never on PAID. Response
+   always returns `redirectUrl` so frontends are unchanged.
 10. **CORS on `/api/checkout`** is allowlist-driven (`AllowedOrigin` table, managed in Pengaturan):
     echo `Access-Control-Allow-Origin` only for the app's own origin or an active listed origin,
     checked live via `lib/cors.ts`. Never use `*`. CORS is not an auth/anti-abuse boundary.

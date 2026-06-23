@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.18.3 |
+| PRD version in sync with | 0.19.0 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -43,6 +43,7 @@
 - [x] **D15 — Switchable WhatsApp engine: WAHA ↔ Fonnte** (§24): new `lib/messaging.ts` `WaEngine` interface + DB singleton `MessagingConfig` (engine `waha`|`fonnte`, default `waha`, cached 10s) resolved via `getWaEngine()`; `lib/waha.ts` `wahaEngine` (unchanged wire behaviour) + new `lib/fonnte.ts` `fonnteEngine` (`api.fonnte.com/send`, `Authorization` token, bare `628…` target, binary multipart `file` 10 MB cap, server-side `typing`/`delay`). All 4 outbound call-sites (`delivery.ts`, `challenge-reminders.ts`, participant resend, test-send) switched. **Inbound switchable:** new `/api/webhooks/fonnte` (URL `?token=` shared-secret auth — Fonnte has no HMAC — plain-number sender, public-url media) + shared `lib/challenge-inbox.ts` (store/record/advance/ack core, also used by the refactored WAHA webhook). Engine picked in Pengaturan (`MessagingEngineSettings` → `GET`/`PUT /api/admin/messaging`); Fonnte token is a server-only env (`FONNTE_TOKEN`, never in DB/browser). New migration `20260624000000_add_messaging_config`; new optional env `FONNTE_TOKEN`/`FONNTE_WEBHOOK_SECRET`. *(built green: 211 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D16 — E-book as protected download link** (§25): the main e-book is delivered as a WhatsApp **text with a `/download/<token>` link** (universal across WAHA/Fonnte, avoids Fonnte's 10 MB cap); **attachments still sent as files**. Public page `/download/[token]` + `POST /api/download/[token]`: buyer enters their **registered WhatsApp number** → exact match → e-book PDF streams from `EBOOK_FILES_DIR`. **Permanent + unlimited re-download** while `PAID`; phone gate **rate-limited** (`checkDownloadRateLimit`, per token+IP). Token `Delivery.downloadToken` = `randomBytes(16).base64url` (22 chars, 128-bit). Link message = **editable `Product.linkMessageTemplate`** (`{{name}}/{{product}}/{{link}}`, default when blank) edited in Program. `attemptDelivery` sends the e-book via `engine.sendText`, attachments via `engine.sendFile`. **Email fallback unchanged** (attaches real PDFs). New `lib/download.ts` (token/template/link, unit-tested) + `checkDownloadRateLimit`. Migration `20260624010000_add_ebook_download_link`. Invariant #4 reworded. *(built green: 225 tests + tsc + build; pending VPS deploy + migration)*
 - [x] **D17 — Conversion postback to ad publisher** (§26): on `PAID`, the Midtrans webhook fires a **fire-and-forget GET postback** to one operator-configured publisher URL so the click can be attributed. **trxid = `Order.trackingId`** (reused from `ref/utm_source/fbclid` — no new field, no landing/checkout change). Macros `{trxid}` (required) / `{amount}` / `{orderid}` via pure `renderPostbackUrl` (URL-encoded, optional macros skipped if absent). `lib/conversion.ts` `sendConversionPostback` is best-effort + idempotent (`Order.conversionPostbackSentAt`), never blocks checkout/delivery; **retried** by the `process-deliveries` cron (`processPendingConversionPostbacks`). Config `ConversionConfig` singleton in Pengaturan (`ConversionPostbackSettings` → `/api/admin/conversion`; validates https + `{trxid}`). Migration `20260624020000_add_conversion_postback` (`Order` audit fields + `ConversionConfig`). No new env. *(built green: 231 tests + tsc + build; pending VPS deploy + migration)*
+- [x] **D18 — Checkout dedup for repeat leads** (§27): a repeat checkout for the same customer (email+whatsapp) + product reuses the existing lead instead of duplicating. Pure `decideCheckoutAction` (`lib/orders.ts`, unit-tested) branches in `/api/checkout`: any **PAID** → status page (`/thank-you?order_id=…`, now shows "Pembelian Selesai" + WIB purchase date + CS contact; order untouched); latest **PENDING**(+URL) → resume Snap; **EXPIRED**/PENDING(no URL) → `renewOrderForPayment` (new orderCode on the same lead → PENDING) + fresh Snap; **FAILED/CANCELLED/REFUNDED** → new order. `trackingId` set only when previously empty (`shouldSetTracking`), never on PAID. Response always carries `redirectUrl` → `[slug]` form + landing pages unchanged. No schema/env change. Owner decisions 2026-06-23. *(built green: 247 tests + tsc + build; pending VPS deploy — rebuild only)*
 - [ ] (later) D4 (Purchase half) PAID-only list · D7 Laporan export page
 
 ## In progress
@@ -214,6 +215,15 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Checkout dedup for repeat leads (PRD 0.19.0 §27, slice D18) — BUILT.** Owner: a repeat
+  checkout for the same email+whatsapp+product must NOT create a new lead; branch on status. Decisions (form):
+  other final statuses (FAILED/CANCELLED/REFUNDED) → treat as no lead → new order; prioritize PAID else
+  latest; EXPIRED → new Midtrans transaction on the same lead; PAID → dedicated status page; trackingId set
+  only if previously empty. Implemented pure `decideCheckoutAction` + `shouldSetTracking` + async
+  `renewOrderForPayment` (new orderCode, status→PENDING, fresh amount) in `lib/orders.ts`; rewired
+  `/api/checkout` (dedup after customer upsert; shared `issueSnap`). Thank-you page now reads the order's real
+  status + `paidAt` and shows "Pembelian Selesai" + WIB date for confirmed-paid. Response always returns
+  `redirectUrl` → no frontend change. +9 tests. No schema/env. 247 tests + tsc + build green.
 - 2026-06-23 — **Thank-you page CS contact (PRD 0.18.3).** `/thank-you` now shows a "Butuh bantuan?" box
   with the CS contact from `Challenge.contactInfo` ("Kontak (info lebih lanjut)"). `page.tsx` → server
   component resolving the contact via the order's `order_id` (fallback: any configured challenge contact);

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { OrderStatus } from '@prisma/client';
 import { checkoutSchema } from '@/lib/validation';
 import { db } from '@/lib/db';
-import { createPendingOrder } from '@/lib/orders';
+import { env } from '@/lib/env';
+import { createPendingOrder, decideCheckoutAction, shouldSetTracking, renewOrderForPayment } from '@/lib/orders';
 import { createSnapTransaction } from '@/lib/midtrans';
 import { toChatId } from '@/lib/phone';
 import { corsHeadersFor } from '@/lib/cors';
@@ -74,20 +75,9 @@ export async function POST(req: NextRequest) {
     create: { name, email, whatsapp },
   });
 
-  // 4. Create order (PENDING) — retries on the improbable orderCode collision.
-  const order = await createPendingOrder({
-    customerId: customer.id,
-    productId: product.id,
-    amountIdr: product.priceIdr,
-    trackingId: trackingId ?? null,
-  });
-  const orderCode = order.orderCode;
-
-  // 5. Create Midtrans Snap transaction.
-  // On failure: mark order FAILED (keeps audit trail) and return 502.
-  let snap;
-  try {
-    snap = await createSnapTransaction({
+  // Snap helper — shared by the new-order, renew, and continue paths. SERVER KEY NEVER LEAVES THE SERVER.
+  const issueSnap = (orderCode: string) =>
+    createSnapTransaction({
       orderId: orderCode,
       grossAmount: product.priceIdr,
       productId: product.id,
@@ -96,28 +86,80 @@ export async function POST(req: NextRequest) {
       customerEmail: email,
       customerPhone: toChatId(whatsapp).replace('@c.us', ''), // digits only for Midtrans
     });
-  } catch (err) {
-    await db.order.update({
-      where: { id: order.id },
-      data: { status: OrderStatus.FAILED },
+
+  // 4. Dedup (D18, §27): reuse the existing lead for this customer + product instead of duplicating.
+  const existingOrders = await db.order.findMany({
+    where: { customerId: customer.id, productId: product.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  const decision = decideCheckoutAction(existingOrders);
+
+  // 4a. Already purchased → status page (don't touch the order; avoids retro conversion attribution).
+  if (decision.kind === 'already_paid') {
+    const base = env.APP_BASE_URL.replace(/\/+$/, '');
+    return json({
+      alreadyPaid: true,
+      orderCode: decision.order.orderCode,
+      paidAt: decision.order.paidAt,
+      redirectUrl: `${base}/thank-you?order_id=${encodeURIComponent(decision.order.orderCode)}`,
     });
+  }
+
+  // 4b. Pending with a payment URL → resume it. trackingId set only if previously empty.
+  if (decision.kind === 'continue') {
+    if (shouldSetTracking(decision.order.trackingId, trackingId)) {
+      await db.order.update({ where: { id: decision.order.id }, data: { trackingId: trackingId!.trim() } });
+    }
+    return json({
+      orderCode: decision.order.orderCode,
+      snapToken: decision.order.snapToken,
+      redirectUrl: decision.order.snapRedirectUrl,
+    });
+  }
+
+  // 4c. Expired (or pending w/o URL) → new Midtrans transaction on the SAME lead row.
+  if (decision.kind === 'renew') {
+    if (shouldSetTracking(decision.order.trackingId, trackingId)) {
+      await db.order.update({ where: { id: decision.order.id }, data: { trackingId: trackingId!.trim() } });
+    }
+    const newCode = await renewOrderForPayment(decision.order.id, product.priceIdr);
+    let snap;
+    try {
+      snap = await issueSnap(newCode);
+    } catch (err) {
+      await db.order.update({ where: { id: decision.order.id }, data: { status: OrderStatus.FAILED } });
+      console.error('[checkout] Midtrans Snap error (renew):', err);
+      return json({ error: 'Gagal membuat transaksi pembayaran. Silakan coba lagi.' }, 502);
+    }
+    await db.order.update({
+      where: { id: decision.order.id },
+      data: { snapToken: snap.token, snapRedirectUrl: snap.redirect_url },
+    });
+    return json({ orderCode: newCode, snapToken: snap.token, redirectUrl: snap.redirect_url });
+  }
+
+  // 4d. No reusable lead → create a fresh order (the original flow).
+  const order = await createPendingOrder({
+    customerId: customer.id,
+    productId: product.id,
+    amountIdr: product.priceIdr,
+    trackingId: trackingId ?? null,
+  });
+  const orderCode = order.orderCode;
+
+  let snap;
+  try {
+    snap = await issueSnap(orderCode);
+  } catch (err) {
+    await db.order.update({ where: { id: order.id }, data: { status: OrderStatus.FAILED } });
     console.error('[checkout] Midtrans Snap error:', err);
     return json({ error: 'Gagal membuat transaksi pembayaran. Silakan coba lagi.' }, 502);
   }
 
-  // 6. Store snap token on the order.
   await db.order.update({
     where: { id: order.id },
-    data: {
-      snapToken: snap.token,
-      snapRedirectUrl: snap.redirect_url,
-    },
+    data: { snapToken: snap.token, snapRedirectUrl: snap.redirect_url },
   });
 
-  // 7. Return token to client — SERVER KEY NEVER LEAVES THE SERVER.
-  return json({
-    orderCode,
-    snapToken: snap.token,
-    redirectUrl: snap.redirect_url,
-  });
+  return json({ orderCode, snapToken: snap.token, redirectUrl: snap.redirect_url });
 }

@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.19.2 |
+| Version | 0.19.3 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,13 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.19.3** (2026-06-23) — **WAHA: humanize file sends + read-receipt every inbound message.** (1) The WAHA
+  `sendFile` (e-book attachment + attachment PDFs) now runs the same human presence as text sends —
+  `sendSeen → startTyping → wait(scaled by caption) → stopTyping` — before uploading the file (best-effort,
+  never blocks the send). Extracted a shared `presenceTyping` helper used by both `sendFile` and
+  `sendTextHumanized`. (2) The WAHA inbound webhook now **always marks every incoming message as seen** (new
+  best-effort `markSeen`) — even when the message has no proof video and the system doesn't reply. Route/lib
+  only — no schema/env. §12.2.1, §21.6.
 - **0.19.2** (2026-06-23) — **E-book delivery mode is now engine-aware (per-engine override of D16).** The
   e-book is sent as a **download link only when the active engine is Fonnte** (its 10 MB cap makes large file
   attachments fail); when **WAHA** is active the e-book is sent as a **file attachment** (the original

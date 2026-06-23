@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.19.2 |
+| PRD version in sync with | 0.19.3 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -215,6 +215,13 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **WAHA humanize file sends + read-receipt all inbound (PRD 0.19.3).** (1) `lib/waha.ts`
+  `sendFile` now runs `sendSeen → startTyping → wait(caption-scaled) → stopTyping` before uploading (shared
+  `presenceTyping` helper, also used by `sendTextHumanized`); best-effort. So WAHA e-book/attachment file
+  sends now show the typing presence, not just priming. (2) New best-effort `markSeen`; the WAHA inbound
+  webhook (`/api/webhooks/waha`) now calls it for EVERY inbound message (after the fromMe check) so all
+  incoming messages get a read receipt even when non-video / unanswered. Route/lib only — no schema/env.
+  247 tests + tsc + build green.
 - 2026-06-23 — **E-book delivery mode now engine-aware (PRD 0.19.2).** Owner: e-book as ATTACHMENT under
   WAHA, as LINK under Fonnte. `delivery.ts` `attemptDelivery` branches the e-book item on `engine.name`:
   Fonnte → `engine.sendText` (download link, D16); WAHA → `engine.sendFile` (base64 attachment, restored the

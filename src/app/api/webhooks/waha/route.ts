@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { verifyWahaSignature, fetchInboundMedia, parseJid, resolveLidToPhone, resolvePhoneToLid } from '@/lib/waha';
+import { verifyWahaSignature, fetchInboundMedia, parseJid, resolveLidToPhone, resolvePhoneToLid, markSeen } from '@/lib/waha';
 import { findActiveChallengeOrderByWhatsapp, storeProofSubmission, type ChallengeOrder } from '@/lib/challenge-inbox';
 import { normalizeIndonesianPhone } from '@/lib/phone';
 
@@ -50,6 +50,10 @@ export async function POST(req: NextRequest) {
   // Only incoming message events with a video attachment matter.
   if (body.event !== 'message') return ignore('event');
   if (payload.fromMe) return ignore('fromMe');
+
+  // Always send a read receipt for EVERY inbound message — even when it has no proof video and we
+  // don't reply. Fire-and-forget + best-effort (markSeen never throws / never blocks the ack).
+  if (payload.from) void markSeen(payload.from, payload.id ?? null);
 
   const messageId = payload.id ?? null;
   const media = payload.media;

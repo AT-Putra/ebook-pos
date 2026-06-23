@@ -143,7 +143,9 @@ done, idempotent, and recoverable.
     text send goes through the active engine's `sendText` (`getWaEngine()`). For **WAHA** that is
     `lib/waha.ts` `sendTextHumanized`: `sendSeen` → `startTyping` →
     wait a random interval scaled to message length → `stopTyping` → `sendText` (all `X-Api-Key`, https).
-    The transactional e-book `sendFile` on PAID is exempt (may still typing-indicate). **Recipient priming:**
+    WAHA `sendFile` (e-book attachment + attachment PDFs) **also** runs this presence (shared `presenceTyping`,
+    scaled by the caption) before uploading — best-effort (0.19.3). The WAHA inbound webhook **always
+    `markSeen` (read receipt) every incoming message**, even non-video / unanswered (0.19.3). **Recipient priming:**
     BOTH send paths call `primeRecipient(chatId)` first — `checkNumberExists` (`GET /api/contacts/check-exists`)
     to resolve + prime the E2E session for a never-contacted number (else the send is accepted but stuck
     `PENDING`/undelivered), then a randomized `primeDelayMs` (1.5–3.5s). Best-effort, never blocks the send.

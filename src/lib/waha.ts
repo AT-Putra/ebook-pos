@@ -26,8 +26,10 @@ export async function sendFile(p: WahaSendFileParams): Promise<WahaMessageResult
     throw new Error('WAHA_BASE_URL must start with https:// — refusing to send over plain HTTP.');
   }
 
-  // Prime a never-contacted recipient so the file actually delivers (not just PENDING).
+  // Prime a never-contacted recipient so the file actually delivers (not just PENDING),
+  // then show the human-like presence (sendSeen → typing → stop) before uploading the file.
   await primeRecipient(p.chatId);
+  await presenceTyping(p.chatId, p.caption ?? '');
 
   const body = {
     session: env.WAHA_SESSION,
@@ -211,6 +213,29 @@ export function typingDelayMs(text: string, rnd: number = Math.random()): number
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+/** Best-effort: marks a chat's message(s) as seen (read receipt). Never throws. Used for outbound
+ *  presence AND to acknowledge EVERY inbound message (read receipt) even when we don't reply. */
+export async function markSeen(chatId: string, messageId?: string | null): Promise<void> {
+  try {
+    await wahaPost('/api/sendSeen', { chatId, messageIds: messageId ? [messageId] : undefined });
+  } catch {
+    // best-effort — a failed read receipt must never affect anything
+  }
+}
+
+/** Best-effort humanized presence before a send: sendSeen → startTyping → wait(scaled by text) →
+ *  stopTyping. Never throws — never blocks the actual send. */
+async function presenceTyping(chatId: string, scaleText: string, messageId?: string): Promise<void> {
+  try {
+    await wahaPost('/api/sendSeen', { chatId, messageIds: messageId ? [messageId] : undefined });
+    await wahaPost('/api/startTyping', { chatId });
+    await sleep(typingDelayMs(scaleText));
+    await wahaPost('/api/stopTyping', { chatId });
+  } catch {
+    // best-effort presence — never block the actual send on it
+  }
+}
+
 /**
  * Sends a text the human-like way to avoid spam flags (§12.2.1):
  * sendSeen → startTyping → wait(scaled) → stopTyping → sendText.
@@ -223,14 +248,7 @@ export async function sendTextHumanized(p: {
 }): Promise<WahaMessageResult> {
   // Prime a never-contacted recipient first (then the humanized sequence below).
   await primeRecipient(p.chatId);
-  try {
-    await wahaPost('/api/sendSeen', { chatId: p.chatId, messageIds: p.messageId ? [p.messageId] : undefined });
-    await wahaPost('/api/startTyping', { chatId: p.chatId });
-    await sleep(typingDelayMs(p.text));
-    await wahaPost('/api/stopTyping', { chatId: p.chatId });
-  } catch {
-    // Best-effort presence signals — never block the actual send on them.
-  }
+  await presenceTyping(p.chatId, p.text, p.messageId);
   const res = await wahaPost('/api/sendText', { chatId: p.chatId, text: p.text });
   if (!res.ok) {
     const errText = await res.text();

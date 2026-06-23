@@ -4,6 +4,7 @@ import { verifySignature, mapMidtransStatus } from '@/lib/midtrans';
 import { advanceOrderStatus } from '@/lib/orders';
 import { attemptDelivery } from '@/lib/delivery';
 import { sendChallengeReminderOnce } from '@/lib/challenge-reminders';
+import { sendConversionPostback } from '@/lib/conversion';
 import { OrderStatus, ParticipantStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
@@ -77,6 +78,12 @@ export async function POST(req: NextRequest) {
       // Fire-and-forget — don't await; errors are logged inside attemptDelivery.
       attemptDelivery(deliveryId).catch(err =>
         console.error('[webhook] Delivery attempt error:', err),
+      );
+
+      // Conversion postback to the ad publisher (D17, §26) — fire-and-forget, idempotent,
+      // best-effort (no-op unless enabled + the order carries a trackingId/trxid).
+      sendConversionPostback(order.id).catch(err =>
+        console.error('[webhook] Conversion postback error:', err),
       );
 
       // Challenge (§21.8): auto-create a participant on PAID for a challenge-active program,

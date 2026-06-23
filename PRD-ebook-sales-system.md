@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.17.0 |
+| Version | 0.18.0 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,19 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.18.0** (2026-06-23) — **S2S conversion postback to ad publisher (slice D17) — BUILT.** On the `PAID`
+  transition the app fires a **server-to-server GET "pixel"** to a single configurable ad-publisher URL,
+  passing back the click id so the publisher can attribute the sale. **trxid = the existing
+  `Order.trackingId`** (captured from `?ref`/`?utm_source`/`?fbclid`) — **no new DB field, no landing-page
+  or checkout change**. The operator sets an `https://` URL **template** in **Pengaturan** (new
+  `ConversionPostbackSettings` card → `GET`/`PUT /api/admin/conversion`, `ConversionConfig` singleton);
+  macros: **`{trxid}` required**, **`{amount}`/`{orderid}` optional** (`renderPostbackUrl` URL-encodes +
+  replaces only what's present). Send is **fire-and-forget, idempotent once per order** (guarded by
+  `Order.conversionPostbackSentAt`), **best-effort** (never blocks/fails checkout or delivery), and **retried**
+  by the existing `process-deliveries` cron for `PAID` orders with a `trackingId` not yet posted back.
+  Fires only when enabled + the order has a non-empty `trackingId` + URL set. New `lib/conversion.ts`. New
+  migration `20260624020000_add_conversion_postback` (`Order` gains `conversionPostbackSentAt`/`…Error`/
+  `…Attempts`; new `ConversionConfig` table). No new env. Plan: `docs/conversion-postback-plan.md`. §26.
 - **0.17.0** (2026-06-23) — **E-book delivered as a protected download link (slice D16) — BUILT.** The main
   e-book is no longer sent as a WhatsApp file attachment; instead the buyer gets a WhatsApp **text with a
   protected download link** (`/download/<token>`) — identical on both engines and **immune to Fonnte's 10 MB
@@ -2123,3 +2136,43 @@ attachments). The link is the WhatsApp path only.
 - [ ] Email fallback still attaches the real PDF files.
 - [ ] Pure helpers (`renderLinkMessage`, token generation, download rate-limit, phone match) are unit-tested;
       `npm test` + `tsc` + `build` green.
+
+## 26. Conversion postback to ad publisher (slice D17) `[DRAFT]`
+
+On `PAID`, fire a server-to-server GET postback to a single ad-publisher URL so the publisher can attribute
+the sale to its click. Full design + decisions: `docs/conversion-postback-plan.md`.
+
+### 26.1 trxid = `Order.trackingId`
+No new field/capture: the publisher click id is the existing `trackingId` (already captured from
+`?ref`/`?utm_source`/`?fbclid` and stored on the order). An order without a `trackingId` is never posted back.
+
+### 26.2 Configuration (`ConversionConfig` singleton + Pengaturan UI)
+Singleton row (cached, like `RateLimitConfig`/`MessagingConfig`), edited via a new `ConversionPostbackSettings`
+card → `GET`/`PUT /api/admin/conversion`:
+- `enabled` (default false), `postbackUrl` (macro template). Validation: `https://…` and must contain `{trxid}`.
+
+### 26.3 Macros
+`{trxid}` (required) → `trackingId`; `{amount}` (optional) → `amountIdr`; `{orderid}` (optional) →
+`orderCode`. URL-encoded; only macros present in the template are replaced (`renderPostbackUrl`, pure).
+
+### 26.4 Sending & idempotency (`lib/conversion.ts`)
+`sendConversionPostback(orderId)` is best-effort + idempotent: no-op unless enabled + `trackingId` present +
+URL set + `conversionPostbackSentAt` null; GET the rendered URL; on 2xx set `conversionPostbackSentAt`, else
+record `conversionPostbackError` + increment `conversionPostbackAttempts`. Fired fire-and-forget from the
+Midtrans webhook after the `PAID` transition; **retried** by the `process-deliveries` cron. Never throws,
+never blocks checkout/delivery.
+
+### 26.5 Data model (migration `20260624020000_add_conversion_postback`)
+`Order` gains `conversionPostbackSentAt DateTime?`, `conversionPostbackError String?`,
+`conversionPostbackAttempts Int @default(0)`. New singleton `ConversionConfig { id, enabled, postbackUrl,
+updatedAt }`. No new env.
+
+### 26.6 Acceptance criteria
+- [ ] On `PAID`, with the postback enabled + URL set, an order with a `trackingId` triggers exactly one GET
+      to the rendered URL (`{trxid}` substituted; `{amount}`/`{orderid}` when present), recorded in
+      `conversionPostbackSentAt`.
+- [ ] No postback for an order without a `trackingId`, or when disabled / URL unset.
+- [ ] A failed postback is recorded and retried by the cron until it succeeds (idempotent, once per order).
+- [ ] Checkout/delivery are never blocked or failed by the postback.
+- [ ] `postbackUrl` validation rejects a non-https URL or one missing `{trxid}`.
+- [ ] Pure `renderPostbackUrl` is unit-tested.

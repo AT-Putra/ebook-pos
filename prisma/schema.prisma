@@ -79,6 +79,10 @@ model Order {
   midtransTransactionId String?
   paymentType           String?
   paidAt                DateTime?
+  // Conversion postback to ad publisher (D17, §26) — best-effort, idempotent once per order.
+  conversionPostbackSentAt   DateTime?
+  conversionPostbackError    String?
+  conversionPostbackAttempts Int      @default(0)
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   customer              Customer    @relation(fields: [customerId], references: [id])
@@ -203,6 +207,14 @@ model MessagingConfig {
   id        String   @id @default("default") // singleton row
   engine    String   @default("waha") // 'waha' | 'fonnte' — the single global active engine
   updatedAt DateTime @updatedAt
+}
+
+// Ad-publisher conversion postback (slice D17, §26). Singleton row.
+model ConversionConfig {
+  id          String   @id @default("default") // singleton row
+  enabled     Boolean  @default(false)
+  postbackUrl String? // GET URL template with macros {trxid} (required), {amount}, {orderid}
+  updatedAt   DateTime @updatedAt
 }
 
 // ── Challenge / reward module (§21) ────────────────────────────────────

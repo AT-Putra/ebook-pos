@@ -1,6 +1,7 @@
 services:
   caddy:
     image: caddy:2
+    env_file: .env                    # provides SITE_ADDRESS for the {$SITE_ADDRESS} site block
     ports:
       - "80:80"
       - "443:443"

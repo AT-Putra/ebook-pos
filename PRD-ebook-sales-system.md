@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.16.1 |
+| Version | 0.16.2 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,12 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.16.2** (2026-06-23) — **Caddy domain via `SITE_ADDRESS` env (deploy ergonomics).** The `Caddyfile`
+  site address is now `{$SITE_ADDRESS}` instead of a hard-coded `yourdomain.com`, and the `caddy` compose
+  service gets `env_file: .env`. The operator sets `SITE_ADDRESS=domain.com` in `.env` once; the tracked
+  `Caddyfile` stays generic, so `git pull` never conflicts on a server-edited domain (the bug that silently
+  blocked the 0.16.0/0.16.1 deploy). Also: `.env.example` now lists the previously-missing `SITE_ADDRESS`,
+  email-fallback (D14) and Fonnte (D15) vars. Config-only; deploy = set `SITE_ADDRESS`, rebuild, reload Caddy.
 - **0.16.1** (2026-06-22) — **Pre-production security hardening.** From a security review: (1) **admin
   login is now rate-limited** — a fixed, always-on per-IP throttle (`checkLoginRateLimit`, 8 attempts /
   5 min, in `lib/rate-limit.ts`, independent of the admin-configurable checkout limit) runs before the
@@ -268,6 +274,7 @@ Provide a `.env.example` with these keys (no real secrets committed):
 # App
 APP_BASE_URL=https://yourdomain.com
 NODE_ENV=development
+SITE_ADDRESS=yourdomain.com   # domain Caddy (dipakai Caddyfile sebagai {$SITE_ADDRESS}); tanpa skema
 
 # Database
 DATABASE_URL=postgresql://user:pass@host:5432/ebook

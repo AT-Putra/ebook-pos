@@ -1,6 +1,8 @@
-# Replace yourdomain.com with your actual domain.
+# The site address (domain) comes from the SITE_ADDRESS env var, so this file stays
+# generic in git and never conflicts on `git pull`. Set SITE_ADDRESS in .env, e.g.
+#   SITE_ADDRESS=domainanda.com
 # Caddy auto-provisions TLS via Let's Encrypt when the domain resolves to this host.
-yourdomain.com {
+{$SITE_ADDRESS} {
     # Security headers (production hardening — clickjacking, MIME-sniffing, HSTS).
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"

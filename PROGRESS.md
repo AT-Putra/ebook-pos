@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.16.1 |
+| PRD version in sync with | 0.16.2 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -212,6 +212,15 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Caddy domain via `SITE_ADDRESS` env (PRD 0.16.2).** Deploy of 0.16.0/0.16.1 silently
+  failed on the VPS: `git pull` aborted because the server's `Caddyfile` had a local edit (real domain) vs
+  the repo's `yourdomain.com`, so `docker compose up --build` rebuilt the OLD code (D15 engine-switch card
+  never appeared; `migrate deploy` showed only 9 migrations). Fix: `Caddyfile` site address → `{$SITE_ADDRESS}`,
+  `caddy` service gets `env_file: .env`; operator sets `SITE_ADDRESS` in `.env` once and the tracked file
+  stays generic (no future pull conflict). `.env.example` updated with `SITE_ADDRESS` + the missing D14
+  (email) and D15 (Fonnte) vars. **One-time VPS transition:** `sudo git checkout -- Caddyfile && sudo git pull`,
+  add `SITE_ADDRESS=domain` to `.env`, then `up -d --build` + `migrate deploy` (will apply the 10th migration
+  `20260624000000_add_messaging_config`) + `restart caddy`. Config-only.
 - 2026-06-22 — **Pre-production security hardening (PRD 0.16.1).** From a security review (using LSP to
   confirm `checkRateLimit` was only wired to checkout): (1) **admin login now rate-limited** — fixed
   always-on per-IP throttle `checkLoginRateLimit` (8/5min, separate from the disableable checkout config,

@@ -21,9 +21,10 @@ done, idempotent, and recoverable.
   bare `628…` target, binary multipart `file` (10 MB cap), server-side `typing`/`delay`. Both HTTPS, never a
   public file URL (inv. #4/#5). Resolve the active engine via `lib/messaging.ts` `getWaEngine()`
 - `nodemailer` over Gmail SMTP (App Password) — **email fallback** for failed WA delivery (D14, §23)
-- Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host. `Caddyfile` sets
-  production security headers (HSTS, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, CSP `frame-ancestors`)
-  + a `request_body max_size 40MB` cap.
+- Caddy (reverse proxy + TLS), Docker Compose (Node 22-alpine), AlmaLinux 10 host. `Caddyfile` site
+  address is `{$SITE_ADDRESS}` (from `.env`, passed to the caddy service via `env_file`) — keeps the file
+  generic in git (no per-deploy domain conflict). It sets production security headers (HSTS,
+  `X-Frame-Options`, `nosniff`, `Referrer-Policy`, CSP `frame-ancestors`) + a `request_body max_size 40MB` cap.
 - Dashboard tables: TanStack Table (`@tanstack/react-table`); export: `jspdf` + `jspdf-autotable` (PDF), `Blob` (CSV)
 
 ## Commands

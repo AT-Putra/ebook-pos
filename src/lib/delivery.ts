@@ -1,10 +1,12 @@
-import { DeliveryStatus, WaLogStatus } from '@prisma/client';
+import { DeliveryStatus, WaLogStatus, Prisma } from '@prisma/client';
 import { db } from './db';
+import { env } from './env';
 import { readEbookAsBase64, readEbookAsBuffer } from './files';
 import { getWaEngine } from './messaging';
 import { toChatId } from './phone';
 import { logWaSend } from './wa-log';
 import { isEmailConfigured, sendEbookEmail } from './email';
+import { generateDownloadToken, buildDownloadLink, renderLinkMessage } from './download';
 
 export const BACKOFF_MINUTES = [1, 5, 15, 60, 360]; // exponential backoff schedule
 
@@ -86,6 +88,22 @@ async function ensureDeliveryItems(deliveryId: string): Promise<void> {
   }
 }
 
+/** Ensures the Delivery has a download token (D16, §25) for the protected e-book link.
+ *  Idempotent — only sets it once; retries on the astronomically-unlikely unique collision. */
+async function ensureDownloadToken(deliveryId: string): Promise<void> {
+  const d = await db.delivery.findUniqueOrThrow({ where: { id: deliveryId }, select: { downloadToken: true } });
+  if (d.downloadToken) return;
+  for (let i = 0; i < 3; i++) {
+    try {
+      await db.delivery.update({ where: { id: deliveryId }, data: { downloadToken: generateDownloadToken() } });
+      return;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') continue; // token collision — retry
+      throw err;
+    }
+  }
+}
+
 /**
  * Attempts to deliver an order's files (e-book + attachments).
  * Exactly-once per file: atomically claims the Delivery (PENDING/FAILED → PROCESSING)
@@ -101,6 +119,7 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
   if (claim.count === 0) return; // already SENT/PROCESSING, or row not found
 
   await ensureDeliveryItems(deliveryId);
+  await ensureDownloadToken(deliveryId); // D16: the e-book is delivered as a protected download link
 
   const delivery = await db.delivery.findUniqueOrThrow({
     where: { id: deliveryId },
@@ -118,22 +137,31 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
   let anyFailed = false;
 
   for (const item of items) {
-    if (item.status === DeliveryStatus.SENT) continue; // never re-send a delivered file
+    if (item.status === DeliveryStatus.SENT) continue; // never re-send a delivered item
 
-    const caption =
-      item.kind === 'ebook'
-        ? `Terima kasih atas pembelianmu, ${customer.name}! 🎉 Berikut e-book kamu: *${product.name}*`
-        : `📎 Lampiran untuk *${product.name}*: ${item.fileName}`;
+    // D16 (§25): the e-book goes as a protected download LINK (humanized text, engine-agnostic, no 10 MB
+    // cap); attachments still go as file attachments. The link message is the Program's editable template.
+    const isEbook = item.kind === 'ebook';
+    const category = isEbook ? 'ebook' : 'attachment';
+    const logFileName = isEbook ? null : item.fileName;
+    const body = isEbook
+      ? renderLinkMessage(product.linkMessageTemplate, {
+          name: customer.name,
+          product: product.name,
+          link: buildDownloadLink(env.APP_BASE_URL, delivery.downloadToken!),
+        })
+      : `📎 Lampiran untuk *${product.name}*: ${item.fileName}`;
 
     try {
-      const base64Data = await readEbookAsBase64(item.filePath);
-      const result = await engine.sendFile({
-        phone: customer.whatsapp,
-        mimeType: item.kind === 'ebook' ? product.mimeType : 'application/pdf',
-        filename: item.fileName,
-        base64Data,
-        caption,
-      });
+      const result = isEbook
+        ? await engine.sendText({ phone: customer.whatsapp, text: body })
+        : await engine.sendFile({
+            phone: customer.whatsapp,
+            mimeType: 'application/pdf',
+            filename: item.fileName,
+            base64Data: await readEbookAsBase64(item.filePath),
+            caption: body,
+          });
 
       await db.deliveryItem.update({
         where: { id: item.id },
@@ -146,11 +174,11 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
         },
       });
       await logWaSend({
-        category: item.kind === 'ebook' ? 'ebook' : 'attachment',
+        category,
         status: WaLogStatus.SENT,
         chatId,
-        fileName: item.fileName,
-        body: caption,
+        fileName: logFileName,
+        body,
         wahaMessageId: result.id,
         orderId: order.id,
         deliveryId,
@@ -169,11 +197,11 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
         },
       });
       await logWaSend({
-        category: item.kind === 'ebook' ? 'ebook' : 'attachment',
+        category,
         status: WaLogStatus.FAILED,
         chatId,
-        fileName: item.fileName,
-        body: caption,
+        fileName: logFileName,
+        body,
         error: message,
         orderId: order.id,
         deliveryId,

@@ -1,4 +1,4 @@
-import { evaluateBucket, clientIpFromHeaders, checkLoginRateLimit, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS } from '@/lib/rate-limit';
+import { evaluateBucket, clientIpFromHeaders, checkLoginRateLimit, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW_MS, checkDownloadRateLimit, DOWNLOAD_MAX_ATTEMPTS, DOWNLOAD_WINDOW_MS } from '@/lib/rate-limit';
 
 describe('evaluateBucket (fixed window)', () => {
   const WINDOW = 60_000;
@@ -55,6 +55,33 @@ describe('checkLoginRateLimit (admin login brute-force throttle)', () => {
     for (let i = 0; i < LOGIN_MAX_ATTEMPTS; i++) checkLoginRateLimit('203.0.113.101', t0);
     expect(checkLoginRateLimit('203.0.113.101', t0).allowed).toBe(false);
     expect(checkLoginRateLimit('203.0.113.102', t0).allowed).toBe(true); // different IP unaffected
+  });
+});
+
+describe('checkDownloadRateLimit (e-book download phone-gate throttle, §25)', () => {
+  it('allows up to DOWNLOAD_MAX_ATTEMPTS per (token+IP) then blocks', () => {
+    const key = 'tok-aaa:203.0.113.50';
+    const t0 = 5_000_000;
+    for (let i = 0; i < DOWNLOAD_MAX_ATTEMPTS; i++) {
+      expect(checkDownloadRateLimit(key, t0).allowed).toBe(true);
+    }
+    expect(checkDownloadRateLimit(key, t0).allowed).toBe(false);
+  });
+
+  it('reopens after the window', () => {
+    const key = 'tok-bbb:203.0.113.51';
+    const t0 = 6_000_000;
+    for (let i = 0; i < DOWNLOAD_MAX_ATTEMPTS; i++) checkDownloadRateLimit(key, t0);
+    expect(checkDownloadRateLimit(key, t0).allowed).toBe(false);
+    expect(checkDownloadRateLimit(key, t0 + DOWNLOAD_WINDOW_MS + 1).allowed).toBe(true);
+  });
+
+  it('tracks each token+IP key independently', () => {
+    const t0 = 7_000_000;
+    for (let i = 0; i < DOWNLOAD_MAX_ATTEMPTS; i++) checkDownloadRateLimit('tok-ccc:1.1.1.1', t0);
+    expect(checkDownloadRateLimit('tok-ccc:1.1.1.1', t0).allowed).toBe(false);
+    expect(checkDownloadRateLimit('tok-ccc:2.2.2.2', t0).allowed).toBe(true); // different IP
+    expect(checkDownloadRateLimit('tok-ddd:1.1.1.1', t0).allowed).toBe(true); // different token
   });
 });
 

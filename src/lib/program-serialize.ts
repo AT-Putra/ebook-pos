@@ -13,6 +13,7 @@ export function serializeProgram(p: ProgramWithRelations) {
     name: p.name,
     programName: p.programName,
     description: p.description,
+    linkMessageTemplate: p.linkMessageTemplate,
     priceIdr: p.priceIdr,
     isActive: p.isActive,
     fileName: p.fileName,

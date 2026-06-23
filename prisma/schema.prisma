@@ -17,6 +17,7 @@ model Product {
   fileName    String // filename shown to the buyer, e.g. "my-ebook.pdf"
   mimeType    String   @default("application/pdf")
   isActive    Boolean  @default(true)
+  linkMessageTemplate String? // D16 (§25): editable WA message carrying the download link ({{name}}/{{product}}/{{link}})
   programName  String? // operator-facing program label, e.g. "Diet90"
   salesStartAt DateTime? // sales window start (WIB); null = no lower bound
   salesEndAt   DateTime? // sales window end (inclusive, WIB); after this, checkout is suspended
@@ -115,6 +116,7 @@ enum DeliveryStatus {
 model Delivery {
   id            String         @id @default(cuid())
   orderId       String         @unique // one delivery per order => no double-send
+  downloadToken String?        @unique // D16 (§25): protected e-book download link token (base64url, 128-bit)
   channel       String         @default("whatsapp")
   status        DeliveryStatus @default(PENDING)
   attempts      Int            @default(0)

@@ -13,6 +13,7 @@ const fieldsSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'Slug hanya huruf kecil, angka, dan tanda minus.'),
   priceIdr: z.coerce.number().int().min(0),
   description: z.string().max(2000).optional(),
+  linkMessageTemplate: z.string().max(2000).optional(),
   salesStartAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   salesEndAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
     slug: field(form, 'slug'),
     priceIdr: field(form, 'priceIdr'),
     description: field(form, 'description'),
+    linkMessageTemplate: field(form, 'linkMessageTemplate'),
     salesStartAt: field(form, 'salesStartAt'),
     salesEndAt: field(form, 'salesEndAt'),
   });
@@ -100,6 +102,7 @@ export async function POST(req: NextRequest) {
         name: d.name,
         programName: d.programName ?? null,
         description: d.description ?? null,
+        linkMessageTemplate: d.linkMessageTemplate ?? null,
         priceIdr: d.priceIdr,
         filePath: saved.ebook.filePath,
         fileName: saved.ebook.fileName,

@@ -15,6 +15,7 @@ const fieldsSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'Slug hanya huruf kecil, angka, dan tanda minus.').optional(),
   priceIdr: z.coerce.number().int().min(0).optional(),
   description: z.string().max(2000).optional(),
+  linkMessageTemplate: z.string().max(2000).optional(),
   salesStartAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   salesEndAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isActive: z.enum(['true', 'false']).optional(),
@@ -54,6 +55,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     slug: field(form, 'slug'),
     priceIdr: field(form, 'priceIdr'),
     description: field(form, 'description'),
+    linkMessageTemplate: field(form, 'linkMessageTemplate'),
     salesStartAt: field(form, 'salesStartAt'),
     salesEndAt: field(form, 'salesEndAt'),
     isActive: field(form, 'isActive'),
@@ -73,6 +75,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
   if (d.slug !== undefined) data.slug = d.slug;
   if (d.priceIdr !== undefined) data.priceIdr = d.priceIdr;
   if (d.description !== undefined) data.description = d.description;
+  if (d.linkMessageTemplate !== undefined) data.linkMessageTemplate = d.linkMessageTemplate;
   if (d.salesStartAt !== undefined) data.salesStartAt = parseSalesStart(d.salesStartAt);
   if (d.salesEndAt !== undefined) data.salesEndAt = parseSalesEnd(d.salesEndAt);
   if (d.isActive !== undefined) data.isActive = d.isActive === 'true';

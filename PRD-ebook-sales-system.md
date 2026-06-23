@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.16.2 |
+| Version | 0.17.0 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,24 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.17.0** (2026-06-23) — **E-book delivered as a protected download link (slice D16) — BUILT.** The main
+  e-book is no longer sent as a WhatsApp file attachment; instead the buyer gets a WhatsApp **text with a
+  protected download link** (`/download/<token>`) — identical on both engines and **immune to Fonnte's 10 MB
+  cap**. **Attachment PDFs still go as file attachments** (small). Opening the link → a public page asks for
+  the buyer's **registered WhatsApp number** → on an **exact match** for that order, the **e-book PDF
+  streams**. Link is **permanent + unlimited re-downloads** while the order is `PAID`; the phone gate is
+  **rate-limited** per `(token+IP)` (`checkDownloadRateLimit`) to stop number enumeration. Token =
+  `randomBytes(16).toString('base64url')` (**22 URL-safe chars, 128-bit** — short link, unguessable),
+  stored on `Delivery.downloadToken @unique`. The link message is an **editable per-Program template**
+  (`Product.linkMessageTemplate`, placeholders `{{name}}/{{product}}/{{link}}`, seeded default) rendered by
+  pure `renderLinkMessage`. `attemptDelivery` now sends the e-book item via `engine.sendText` (humanized) and
+  attachments via `engine.sendFile`. **Email fallback (D14) unchanged** — still attaches the real PDF files.
+  New public routes `GET /download/[token]` (page) + `POST /api/download/[token]` (verify+stream), outside
+  admin auth. New `lib/download.ts` (token/template/link helpers) + `checkDownloadRateLimit`. Invariant #4
+  reworded: the e-book may be served by the tokenized, phone-gated endpoint — still never `public/`, never a
+  static URL, never a file URL to the WA provider. New migration `20260624010000_add_ebook_download_link`
+  (`Delivery.downloadToken`, `Product.linkMessageTemplate`). Full design: `docs/ebook-link-delivery-plan.md`.
+  §25.
 - **0.16.2** (2026-06-23) — **Caddy domain via `SITE_ADDRESS` env (deploy ergonomics).** The `Caddyfile`
   site address is now `{$SITE_ADDRESS}` instead of a hard-coded `yourdomain.com`, and the `caddy` compose
   service gets `env_file: .env`. The operator sets `SITE_ADDRESS=domain.com` in `.env` once; the tracked
@@ -2060,3 +2078,48 @@ status → `proof_received` ack) is extracted to **`lib/challenge-inbox.ts`** an
       the §23 email fallback still fires.
 - [ ] Pure helpers (Fonnte payload/response parsing, `MessagingConfig` engine resolution, inbound
       idempotency-key derivation) are unit-tested.
+
+## 25. E-book as a protected download link (slice D16) `[DRAFT]`
+
+The main e-book is delivered as a **protected download link** instead of a WhatsApp file attachment, so
+delivery is identical on WAHA & Fonnte and is not blocked by Fonnte's 10 MB cap. **Attachment PDFs stay as
+file attachments.** Full design + decisions: `docs/ebook-link-delivery-plan.md`.
+
+### 25.1 Flow
+On `PAID`, `attemptDelivery` sends the e-book `DeliveryItem` as a **humanized WhatsApp text** containing
+`${APP_BASE_URL}/download/<token>` (rendered from the Program's editable `linkMessageTemplate`); attachments
+are still sent via `engine.sendFile`. The buyer opens the link → a public page asks for their WhatsApp
+number → `POST /api/download/<token>` normalizes it, **exact-matches** the order's registered number, and on
+success **streams the e-book PDF** from the private `EBOOK_FILES_DIR`. Link is **permanent + unlimited
+re-downloads** while the order is `PAID`.
+
+### 25.2 Token & data model
+- `Delivery.downloadToken String? @unique` — `randomBytes(16).toString('base64url')` (**22 chars, 128-bit**),
+  generated when the delivery items are snapshotted. Short link, unguessable.
+- `Product.linkMessageTemplate String?` — editable WhatsApp message (placeholders `{{name}}/{{product}}/
+  {{link}}`); seeded default; blank ⇒ built-in default. Edited in the Program menu.
+- Migration `20260624010000_add_ebook_download_link`.
+
+### 25.3 Security (Invariant #4 reworded — not weakened)
+The e-book may be served by the **tokenized, phone-gated** `/api/download/<token>` endpoint (and the admin
+proof-video stream) — but still **never** under `public/`, never served statically, and **never handed to a
+WA provider as a URL** (the WA message carries an app link, not a file URL). The token is the secret; the
+phone gate is a second factor against casual sharing; `checkDownloadRateLimit` (per token+IP) blocks number
+enumeration. HTTPS only; `Cache-Control: private, no-store`.
+
+### 25.4 Email fallback
+Unchanged (§23): on WhatsApp failure the buyer is still emailed the **actual PDF files** (e-book +
+attachments). The link is the WhatsApp path only.
+
+### 25.5 Acceptance criteria
+- [ ] On `PAID`, the buyer receives a WhatsApp text with a `/download/<token>` link (WAHA & Fonnte);
+      attachments still arrive as files.
+- [ ] The correct registered number downloads the PDF; a wrong number is rejected and repeated attempts are
+      rate-limited (`429`).
+- [ ] The link works only while `PAID`, permanently and for unlimited re-downloads.
+- [ ] The e-book is never a public/static URL nor a URL to the WA provider; the PDF streams only after a
+      successful phone match.
+- [ ] The link message comes from the Program's editable template (default when blank); placeholders render.
+- [ ] Email fallback still attaches the real PDF files.
+- [ ] Pure helpers (`renderLinkMessage`, token generation, download rate-limit, phone match) are unit-tested;
+      `npm test` + `tsc` + `build` green.

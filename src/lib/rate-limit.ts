@@ -102,3 +102,22 @@ export function checkLoginRateLimit(ip: string, now: number = Date.now()): RateL
   loginBuckets.set(ip, result.bucket);
   return { allowed: result.allowed, retryAfter: result.retryAfter };
 }
+
+// ── E-book download phone-gate limiter (D16, §25) ────────────────────────────
+// Throttles wrong-number attempts on /api/download/[token] so a leaked link can't be used to
+// enumerate phone numbers. Keyed by `token + IP` (passed in by the caller).
+export const DOWNLOAD_MAX_ATTEMPTS = 5;
+export const DOWNLOAD_WINDOW_MS = 5 * 60_000; // 5 minutes
+const downloadBuckets = new Map<string, Bucket>();
+let lastDownloadSweep = 0;
+
+/** Per-(token+IP) fixed-window throttle for the download phone gate. Synchronous; `now` injectable. */
+export function checkDownloadRateLimit(key: string, now: number = Date.now()): RateLimitResult {
+  if (now - lastDownloadSweep >= 60_000) {
+    lastDownloadSweep = now;
+    for (const [k, b] of downloadBuckets) if (b.resetAt <= now) downloadBuckets.delete(k);
+  }
+  const result = evaluateBucket(downloadBuckets.get(key), now, DOWNLOAD_WINDOW_MS, DOWNLOAD_MAX_ATTEMPTS);
+  downloadBuckets.set(key, result.bucket);
+  return { allowed: result.allowed, retryAfter: result.retryAfter };
+}

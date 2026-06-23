@@ -44,9 +44,10 @@ done, idempotent, and recoverable.
 - `src/app/api/admin/*` — operator endpoints (orders, resend; + `auth/*`, `report` for the dashboard)
 - `src/app/admin/*` — operator dashboard / CMS UI; login is outside the `(dashboard)` route group; `src/proxy.ts` gates `/admin/*` (Next 16 renamed middleware→proxy; export the function as `proxy`)
 - `src/components/admin/*` — dashboard UI: `DashboardShell` (responsive frame + sidebar CSS; drawer on ≤768px), `Sidebar`, `Card`/`CardStack`/`PageHeader` (shared layout primitives — §20.12), `KpiCard`, `LeadsReport`, `DataTable` (TanStack), `OriginManager`, `RateLimitSettings`, `ProgramManager` (D10: program list/add/edit + PDF upload), `WaLogs` (D5: outbound WA send audit table + filters + Resend), `LeadsList` (D4: log of every checkout submission + filters + Detail/Resend), `UserManager` (D6: admin-account add/rename/reset-password/(de)activate card)
-- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`, `challenge-reminders`, `wa-log`, `leads`, `admin-users`, `email`, `messaging` (D15 engine resolver/registry), `fonnte` (D15 Fonnte adapter + inbound parse), `challenge-inbox` (D15 shared inbound proof-capture core))
+- `src/lib/` — `db`, `env`, `validation`, `orders`, `midtrans`, `waha`, `files`, `phone`, `delivery`, `auth` (+ `password`, `session`, `cookie-names`, `report`, `cors`, `rate-limit`, `programs`, `program-serialize`, `challenge`, `challenge-reminders`, `wa-log`, `leads`, `admin-users`, `email`, `messaging` (D15 engine resolver/registry), `fonnte` (D15 Fonnte adapter + inbound parse), `challenge-inbox` (D15 shared inbound proof-capture core), `download` (D16 e-book download-link token/template/link helpers))
 - `src/app/admin/(dashboard)/settings/` — Pengaturan: CORS allowlist + checkout rate limit + **WhatsApp engine switch** (D15, §24, `MessagingEngineSettings`) + **admin user mgmt** (D6, §20.15, `UserManager`); APIs `/api/admin/origins[/id]`, `/api/admin/rate-limit`, `/api/admin/messaging`, `/api/admin/users[/id]`
 - `src/app/api/webhooks/fonnte/route.ts` — **D15 Fonnte inbound** proof-video webhook (active when engine=fonnte). No HMAC from Fonnte → auth via `?token=` shared secret (`FONNTE_WEBHOOK_SECRET`, constant-time, fails closed). Plain-number `sender`, public `url` media. Shares `lib/challenge-inbox.ts` with the WAHA webhook.
+- `src/app/download/[token]/` + `src/app/api/download/[token]/route.ts` — **D16 protected e-book download** (§25). Public (NOT admin-gated): the buyer opens the WA link, enters their registered WhatsApp number → exact match → the e-book PDF streams from `EBOOK_FILES_DIR`. Token = `Delivery.downloadToken` (base64url, 128-bit). Rate-limited (`checkDownloadRateLimit`, per token+IP). Link message = editable `Product.linkMessageTemplate` (`lib/download.ts` `renderLinkMessage`). E-book now sent via `engine.sendText` in `delivery.ts`; attachments still `engine.sendFile`.
 - `src/app/admin/(dashboard)/program/` — Program (D10): product/program config + e-book PDF upload + **attachment PDFs** (`ProductAttachment`, add/remove) + sales window; APIs `/api/admin/programs[/id]` + `/programs/[id]/attachments[/attId]` (multipart). `lib/programs.ts` = pure sales-window logic. Buyer gets e-book + all attachments on purchase (per-file `DeliveryItem`)
 - `src/app/admin/(dashboard)/challenge/` + `/active/` — Challenge module (D11, §21): `challenge/` = per-program challenge config (`Challenge` 1:1 `Product`, all fields editable, seeded from `docs/challenge-rules.md`; templates card has a **test-send**: per-template "Kirim tes" → `POST /api/admin/whatsapp/test`); `active/` = User/Active participant list + status (verify proof videos, enter weights, %-loss leaderboard). Proof videos **auto-captured** via `/api/webhooks/waha` (inbound) into private `CHALLENGE_MEDIA_DIR`. APIs `/api/admin/challenges/[productId]`, `/participants[/id][/proof/[kind]]`, `/whatsapp/test`. `lib/challenge.ts` = pure day/phase/%loss/status logic + `computeDueReminders` (D12). **D12 automation:** Midtrans PAID auto-creates a participant (`AWAITING_INITIAL`) **and instantly sends the `after_purchase` instructions** (via `sendChallengeReminderOnce`, fire-and-forget, idempotent — not waiting for the cron); cron `/api/cron/challenge-reminders` (hourly, `isCron`) sends the rest of the reminder schedule once each (idempotent via `ChallengeReminderLog`) + auto-eliminates; `final_received` sent on verify-final. Reminder send = shared `sendChallengeReminderOnce` (reserve-then-send) used by both webhook + cron. Rules: `docs/challenge-rules.md`.
 - `src/app/admin/(dashboard)/wa-logs/` — **WA Logs (D5, §20.13):** outbound WA send audit (`WaLogs.tsx`).
@@ -73,13 +74,18 @@ done, idempotent, and recoverable.
    using the EXACT `gross_amount` string from the payload. Reject mismatches. Log every notification.
 2. **Idempotent + forward-only** order status updates. Duplicate/out-of-order notifications must not
    double-update or trigger a second delivery. A late `pending` after `settlement` is ignored.
-3. **Exactly-once delivery (per file)**: one `Delivery` row per order (`orderId` unique); within it one
+3. **Exactly-once delivery (per item)**: one `Delivery` row per order (`orderId` unique); within it one
    `DeliveryItem` per file (e-book + each attachment, §20.11). Delivery fires only on the `PAID`
    transition; each item is sent at most once — a retry resends only items not yet `SENT`, and the
-   `Delivery` is `SENT` only when every item is `SENT`. Never send any file twice automatically.
+   `Delivery` is `SENT` only when every item is `SENT`. Never send any item twice automatically. **D16
+   (§25):** the e-book item `SENT` = the **download-link message** was sent (the file itself is fetched
+   later via `/api/download/[token]`, re-downloadable); attachment items `SENT` = the file was sent.
 4. **Private files**: the e-book/attachments under `EBOOK_FILES_DIR` and challenge **proof videos** under
    `CHALLENGE_MEDIA_DIR` are OUTSIDE the web root. NEVER under `public/`, never served statically, never
-   given to WAHA as a URL; proof videos are only ever streamed to an authenticated admin.
+   given to a WA provider as a URL. They are streamed ONLY by an authorized handler: proof videos to an
+   authenticated admin; the e-book by the **tokenized, phone-gated** `/api/download/[token]` (D16, §25) —
+   the unguessable `Delivery.downloadToken` + an exact registered-WhatsApp-number match + rate-limit. The WA
+   message carries an app **link**, never a file URL. Attachments are still sent as file attachments.
 5. **Active engine over HTTPS only, never a file URL** (engine-aware, §24.6): WAHA `WAHA_BASE_URL` must
    start with `https://` (refuses otherwise); the file goes as base64 in `file.data` (never `file.url`),
    API key in `X-Api-Key`. Fonnte sends to `https://api.fonnte.com/send` with the file as a binary
@@ -163,6 +169,14 @@ backfill via `npm run wa-logs:backfill`. Deploy needs only the migration (no new
 no schema change (rebuild image only).
 **Built, pending deploy: D6 User management** (§20.15) — admin-account CRUD card in Pengaturan
 (add/rename/reset-password/(de)activate); APIs `/api/admin/users[/id]`; no schema change (rebuild only).
+**Built, pending deploy: D16 E-book as protected download link** (§25) — the e-book is delivered as a WA
+text with a `/download/<token>` link (universal across WAHA/Fonnte, no 10 MB cap); attachments still sent
+as files. Buyer enters their registered WhatsApp number on the public page → exact match → PDF streams.
+Permanent + unlimited re-download while PAID; phone gate rate-limited. Token `Delivery.downloadToken`
+(base64url 128-bit); link message = editable `Product.linkMessageTemplate`. Email fallback unchanged
+(attaches files). New `lib/download.ts`, public `/download/[token]` + `/api/download/[token]`. Migration
+`20260624010000_add_ebook_download_link`. Deploy = rebuild + migrate (no new env). Plan:
+`docs/ebook-link-delivery-plan.md`.
 **Built, pending deploy: D15 Switchable WhatsApp engine** (§24) — WAHA ↔ Fonnte, chosen in Pengaturan
 (`MessagingEngineSettings` → `/api/admin/messaging`, `MessagingConfig` singleton). `lib/messaging.ts`
 resolves the active engine (`getWaEngine()`); `lib/waha.ts` `wahaEngine` + new `lib/fonnte.ts` `fonnteEngine`

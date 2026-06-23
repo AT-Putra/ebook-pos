@@ -13,6 +13,7 @@ export type Program = {
   name: string;
   programName: string | null;
   description: string | null;
+  linkMessageTemplate: string | null;
   priceIdr: number;
   isActive: boolean;
   fileName: string;
@@ -160,6 +161,7 @@ function ProgramFormModal({
   const [slug, setSlug] = useState(editing?.slug ?? '');
   const [priceIdr, setPriceIdr] = useState(String(editing?.priceIdr ?? ''));
   const [description, setDescription] = useState(editing?.description ?? '');
+  const [linkMessageTemplate, setLinkMessageTemplate] = useState(editing?.linkMessageTemplate ?? '');
   const [salesStartAt, setSalesStartAt] = useState(dateInput(editing?.salesStartAt ?? null));
   const [salesEndAt, setSalesEndAt] = useState(dateInput(editing?.salesEndAt ?? null));
   const [isActive, setIsActive] = useState(editing?.isActive ?? true);
@@ -192,6 +194,7 @@ function ProgramFormModal({
     fd.set('slug', slug);
     fd.set('priceIdr', priceIdr);
     fd.set('description', description);
+    fd.set('linkMessageTemplate', linkMessageTemplate);
     fd.set('salesStartAt', salesStartAt);
     fd.set('salesEndAt', salesEndAt);
     if (isEdit) fd.set('isActive', String(isActive));
@@ -254,6 +257,21 @@ function ProgramFormModal({
           <div>
             <label style={label}>Deskripsi (opsional)</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} style={{ ...input, resize: 'vertical' }} />
+          </div>
+
+          <div>
+            <label style={label}>Pesan link e-book WhatsApp (opsional)</label>
+            <textarea
+              value={linkMessageTemplate}
+              onChange={e => setLinkMessageTemplate(e.target.value)}
+              rows={3}
+              placeholder="Kosongkan untuk pakai teks default. Placeholder: {{name}}, {{product}}, {{link}}"
+              style={{ ...input, resize: 'vertical' }}
+            />
+            <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '4px 0 0' }}>
+              Pesan WhatsApp yang membawa link download e-book. Wajib menyertakan <code>{'{{link}}'}</code>.
+              Placeholder tersedia: <code>{'{{name}}'}</code>, <code>{'{{product}}'}</code>, <code>{'{{link}}'}</code>.
+            </p>
           </div>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

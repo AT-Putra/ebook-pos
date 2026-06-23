@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.19.0 |
+| Version | 0.19.1 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,13 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.19.1** (2026-06-23) — **Deterministic WhatsApp order on PAID.** The post-purchase challenge message
+  (`after_purchase`) was sent **in parallel** with delivery, so the three messages could interleave. It now
+  runs **after** delivery completes: the Midtrans webhook keeps the `attemptDelivery` promise and chains the
+  `after_purchase` send via `deliveryDone.then(...)`. Combined with `attemptDelivery` already sending items in
+  `sortOrder` (e-book = 0, then attachments), the WhatsApp order is now always **e-book → attachments →
+  after_purchase**. Still fire-and-forget (webhook acks 200 immediately) and idempotent (the hourly cron never
+  re-sends). Route-only — no schema/env. §21.8.
 - **0.19.0** (2026-06-23) — **Checkout deduplicates repeat leads (slice D18) — BUILT.** A repeat checkout
   for the **same customer (email+whatsapp) + product** no longer creates a duplicate lead. After the customer
   upsert, `/api/checkout` looks up that customer's orders for the product and (pure `decideCheckoutAction`,

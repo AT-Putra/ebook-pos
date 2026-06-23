@@ -75,8 +75,10 @@ export async function POST(req: NextRequest) {
         ? existing.id
         : (await db.delivery.create({ data: { orderId: order.id } })).id;
 
-      // Fire-and-forget — don't await; errors are logged inside attemptDelivery.
-      attemptDelivery(deliveryId).catch(err =>
+      // Fire-and-forget — don't await; errors are logged inside attemptDelivery. Keep the promise so
+      // the post-purchase challenge message can be chained AFTER delivery, giving a deterministic
+      // WhatsApp order: e-book → attachments → after_purchase. The webhook still acks 200 immediately.
+      const deliveryDone = attemptDelivery(deliveryId).catch(err =>
         console.error('[webhook] Delivery attempt error:', err),
       );
 
@@ -104,20 +106,25 @@ export async function POST(req: NextRequest) {
             include: { customer: true },
           });
 
-          // Send the "after purchase" challenge instructions IMMEDIATELY (don't wait for the
-          // hourly reminder cron). Idempotent via ChallengeReminderLog, so the cron never
-          // re-sends it. Fire-and-forget — the webhook still acks 200 right away.
+          // Send the "after purchase" challenge instructions right after delivery completes (NOT in
+          // parallel) so WhatsApp messages arrive in order: e-book → attachments → after_purchase.
+          // Still well before the hourly reminder cron, which is idempotent via ChallengeReminderLog
+          // (so it never re-sends). Fire-and-forget — the webhook acked 200 already.
           const templates = (challenge.messageTemplates as Record<string, string>) ?? {};
           const afterPurchaseTpl = templates['after_purchase'];
           if (afterPurchaseTpl) {
-            sendChallengeReminderOnce({
-              participantId: participant.id,
-              whatsapp: participant.customer.whatsapp,
-              key: 'after_purchase',
-              template: afterPurchaseTpl,
-              contactInfo: challenge.contactInfo,
-              productId: challenge.productId,
-            }).catch(err => console.error('[webhook] after_purchase send error:', err));
+            deliveryDone
+              .then(() =>
+                sendChallengeReminderOnce({
+                  participantId: participant.id,
+                  whatsapp: participant.customer.whatsapp,
+                  key: 'after_purchase',
+                  template: afterPurchaseTpl,
+                  contactInfo: challenge.contactInfo,
+                  productId: challenge.productId,
+                }),
+              )
+              .catch(err => console.error('[webhook] after_purchase send error:', err));
           }
         } catch (err) {
           console.error('[webhook] Challenge participant create error:', err);

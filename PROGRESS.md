@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.19.0 |
+| PRD version in sync with | 0.19.1 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -215,6 +215,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Deterministic WhatsApp order on PAID (PRD 0.19.1).** `after_purchase` was sent in parallel
+  with delivery → messages interleaved. Now the Midtrans webhook keeps the `attemptDelivery` promise and
+  chains the `after_purchase` send (`deliveryDone.then(...)`); with `attemptDelivery` already iterating items
+  by `sortOrder` (e-book 0 → attachments), the order is now always **e-book → attachments → after_purchase**.
+  Still fire-and-forget + idempotent. Route-only — no schema/env. 247 tests + tsc + build green.
 - 2026-06-23 — **Checkout dedup for repeat leads (PRD 0.19.0 §27, slice D18) — BUILT.** Owner: a repeat
   checkout for the same email+whatsapp+product must NOT create a new lead; branch on status. Decisions (form):
   other final statuses (FAILED/CANCELLED/REFUNDED) → treat as no lead → new order; prioritize PAID else

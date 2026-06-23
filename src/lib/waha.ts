@@ -18,6 +18,19 @@ export type WahaMessageResult = {
   id: string;            // message id from WAHA
 };
 
+/** Pure: extracts the string message id from a WAHA send response. Depending on the WAHA engine/version
+ *  the `id` is either a plain string OR an object `{ fromMe, remote, id, _serialized }`. Storing the object
+ *  in the String `wahaMessageId` column throws — so always coerce to a string here. */
+export function extractWahaMessageId(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    if (typeof o._serialized === 'string') return o._serialized;
+    if (typeof o.id === 'string') return o.id;
+  }
+  return '';
+}
+
 /** Sends a file to a WhatsApp chat via WAHA /api/sendFile.
  *  Always sends base64 in file.data — never a URL (invariant). */
 export async function sendFile(p: WahaSendFileParams): Promise<WahaMessageResult> {
@@ -56,9 +69,9 @@ export async function sendFile(p: WahaSendFileParams): Promise<WahaMessageResult
     throw new Error(`WAHA sendFile error (${res.status}): ${text}`);
   }
 
-  const data = await res.json() as { id?: string };
+  const data = await res.json() as { id?: unknown };
   await logWahaSendDev('sendFile', p.chatId, data);
-  return { id: data.id ?? '' };
+  return { id: extractWahaMessageId(data.id) };
 }
 
 // ── Inbound (Challenge proof videos, §21.6) ─────────────────────────────────
@@ -254,9 +267,9 @@ export async function sendTextHumanized(p: {
     const errText = await res.text();
     throw new Error(`WAHA sendText error (${res.status}): ${errText}`);
   }
-  const data = await res.json() as { id?: string };
+  const data = await res.json() as { id?: unknown };
   await logWahaSendDev('sendText', p.chatId, data);
-  return { id: data.id ?? '' };
+  return { id: extractWahaMessageId(data.id) };
 }
 
 // ── Engine adapter (slice D15, §24.2) ───────────────────────────────────────

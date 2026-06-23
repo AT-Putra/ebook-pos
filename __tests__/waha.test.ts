@@ -1,5 +1,22 @@
 import crypto from 'crypto';
-import { verifyWahaSignature, typingDelayMs, parseJid, primeDelayMs, checkNumberExists } from '@/lib/waha';
+import { verifyWahaSignature, typingDelayMs, parseJid, primeDelayMs, checkNumberExists, extractWahaMessageId } from '@/lib/waha';
+
+describe('extractWahaMessageId (response id coercion)', () => {
+  it('returns a plain string id as-is', () => {
+    expect(extractWahaMessageId('ABC123')).toBe('ABC123');
+  });
+  it('extracts _serialized from an object id', () => {
+    expect(extractWahaMessageId({ fromMe: true, remote: '628@c.us', id: '3EB0', _serialized: 'true_628@c.us_3EB0' })).toBe('true_628@c.us_3EB0');
+  });
+  it('falls back to .id when _serialized is missing', () => {
+    expect(extractWahaMessageId({ id: '3EB0' })).toBe('3EB0');
+  });
+  it('returns empty string for null/undefined/other', () => {
+    expect(extractWahaMessageId(undefined)).toBe('');
+    expect(extractWahaMessageId(null)).toBe('');
+    expect(extractWahaMessageId(123)).toBe('');
+  });
+});
 
 const SECRET = 'test-waha-webhook-secret'; // matches jest.setup.ts
 

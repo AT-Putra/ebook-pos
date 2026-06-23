@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.19.3 |
+| PRD version in sync with | 0.19.4 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -215,6 +215,12 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Fix: WAHA send logged FAILED despite delivering (PRD 0.19.4).** Prod error
+  `Invalid prisma.challengeReminderLog.update() … Unknown argument 'fromMe'`: WAHA's send-response `id` is an
+  object `{ fromMe, remote, id, _serialized }` (not a string), stored as-is into the String `wahaMessageId`
+  column → threw → caught → logged FAILED though the message arrived (and made delivery items retry →
+  duplicate sends). Fixed: pure `extractWahaMessageId` (`_serialized` → `id` → '') used by `sendFile` +
+  `sendTextHumanized`. +4 tests. Lib only — no schema/env. 251 tests + tsc + build green.
 - 2026-06-23 — **WAHA humanize file sends + read-receipt all inbound (PRD 0.19.3).** (1) `lib/waha.ts`
   `sendFile` now runs `sendSeen → startTyping → wait(caption-scaled) → stopTyping` before uploading (shared
   `presenceTyping` helper, also used by `sendTextHumanized`); best-effort. So WAHA e-book/attachment file

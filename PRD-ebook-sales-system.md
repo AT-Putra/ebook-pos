@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.19.3 |
+| Version | 0.19.4 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,14 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.19.4** (2026-06-23) — **Fix: WAHA send recorded as FAILED despite delivering (object message id).** The
+  WAHA send response `id` is — depending on the engine/version — an **object** `{ fromMe, remote, id,
+  _serialized }`, not a string. The adapter stored it as-is, so writing `wahaMessageId` (a String column)
+  threw `Unknown argument 'fromMe'`; the exception was caught and the send logged **FAILED** even though the
+  message arrived. This also caused **delivery items to be marked FAILED → retried → duplicate e-book/
+  attachment sends** under WAHA. Fixed with a pure `extractWahaMessageId` that coerces the response id to a
+  string (`_serialized` → `id` → ''), used by both `sendFile` and `sendTextHumanized`. Lib only — no schema/
+  env. §12.2.1.
 - **0.19.3** (2026-06-23) — **WAHA: humanize file sends + read-receipt every inbound message.** (1) The WAHA
   `sendFile` (e-book attachment + attachment PDFs) now runs the same human presence as text sends —
   `sendSeen → startTyping → wait(scaled by caption) → stopTyping` — before uploading the file (best-effort,

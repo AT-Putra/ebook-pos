@@ -139,25 +139,30 @@ export async function attemptDelivery(deliveryId: string): Promise<void> {
   for (const item of items) {
     if (item.status === DeliveryStatus.SENT) continue; // never re-send a delivered item
 
-    // D16 (§25): the e-book goes as a protected download LINK (humanized text, engine-agnostic, no 10 MB
-    // cap); attachments still go as file attachments. The link message is the Program's editable template.
+    // E-book delivery mode is engine-aware (D16/§25 + per-engine override):
+    //   • Fonnte active → send the e-book as a protected download LINK (avoids the 10 MB cap);
+    //   • WAHA active   → send the e-book as a file ATTACHMENT (the original behaviour).
+    // Attachment PDFs are always sent as file attachments.
     const isEbook = item.kind === 'ebook';
+    const sendAsLink = isEbook && engine.name === 'fonnte';
     const category = isEbook ? 'ebook' : 'attachment';
-    const logFileName = isEbook ? null : item.fileName;
-    const body = isEbook
+    const logFileName = sendAsLink ? null : item.fileName; // a file send is logged with its filename
+    const body = sendAsLink
       ? renderLinkMessage(product.linkMessageTemplate, {
           name: customer.name,
           product: product.name,
           link: buildDownloadLink(env.APP_BASE_URL, delivery.downloadToken!),
         })
-      : `📎 Lampiran untuk *${product.name}*: ${item.fileName}`;
+      : isEbook
+        ? `Terima kasih atas pembelianmu, ${customer.name}! 🎉 Berikut e-book kamu: *${product.name}*`
+        : `📎 Lampiran untuk *${product.name}*: ${item.fileName}`;
 
     try {
-      const result = isEbook
+      const result = sendAsLink
         ? await engine.sendText({ phone: customer.whatsapp, text: body })
         : await engine.sendFile({
             phone: customer.whatsapp,
-            mimeType: 'application/pdf',
+            mimeType: isEbook ? product.mimeType : 'application/pdf',
             filename: item.fileName,
             base64Data: await readEbookAsBase64(item.filePath),
             caption: body,

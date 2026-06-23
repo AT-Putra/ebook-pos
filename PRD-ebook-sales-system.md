@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.19.1 |
+| Version | 0.19.2 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,12 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.19.2** (2026-06-23) — **E-book delivery mode is now engine-aware (per-engine override of D16).** The
+  e-book is sent as a **download link only when the active engine is Fonnte** (its 10 MB cap makes large file
+  attachments fail); when **WAHA** is active the e-book is sent as a **file attachment** (the original
+  pre-D16 behaviour, base64). Attachment PDFs are unchanged (always file attachments). The branch is in
+  `delivery.ts` `attemptDelivery` keyed on `engine.name`; the download token + link message remain (used by
+  Fonnte and still valid if the engine is later switched). No schema/env change. §25.
 - **0.19.1** (2026-06-23) — **Deterministic WhatsApp order on PAID.** The post-purchase challenge message
   (`after_purchase`) was sent **in parallel** with delivery, so the three messages could interleave. It now
   runs **after** delivery completes: the Midtrans webhook keeps the `attemptDelivery` promise and chains the
@@ -2132,16 +2138,21 @@ status → `proof_received` ack) is extracted to **`lib/challenge-inbox.ts`** an
 - [ ] Pure helpers (Fonnte payload/response parsing, `MessagingConfig` engine resolution, inbound
       idempotency-key derivation) are unit-tested.
 
-## 25. E-book as a protected download link (slice D16) `[DRAFT]`
+## 25. E-book delivery: download link (Fonnte) / attachment (WAHA) (slice D16) `[STABLE]`
 
-The main e-book is delivered as a **protected download link** instead of a WhatsApp file attachment, so
-delivery is identical on WAHA & Fonnte and is not blocked by Fonnte's 10 MB cap. **Attachment PDFs stay as
-file attachments.** Full design + decisions: `docs/ebook-link-delivery-plan.md`.
+The main e-book delivery mode is **engine-aware** (updated 0.19.2): when **Fonnte** is the active engine the
+e-book is delivered as a **protected download link** (Fonnte caps attachments at 10 MB); when **WAHA** is
+active the e-book is delivered as a **file attachment** (base64, the original behaviour — WAHA has no such
+cap). **Attachment PDFs always stay as file attachments.** The branch lives in `delivery.ts` `attemptDelivery`
+(`engine.name === 'fonnte'` → link, else file). The download token + editable link message remain available
+for the Fonnte path (and if the engine is later switched). Full design + decisions:
+`docs/ebook-link-delivery-plan.md`.
 
 ### 25.1 Flow
-On `PAID`, `attemptDelivery` sends the e-book `DeliveryItem` as a **humanized WhatsApp text** containing
-`${APP_BASE_URL}/download/<token>` (rendered from the Program's editable `linkMessageTemplate`); attachments
-are still sent via `engine.sendFile`. The buyer opens the link → a public page asks for their WhatsApp
+On `PAID`, `attemptDelivery` sends the e-book `DeliveryItem` **per the active engine** (0.19.2): with
+**Fonnte** → a **humanized WhatsApp text** containing `${APP_BASE_URL}/download/<token>` (rendered from the
+Program's editable `linkMessageTemplate`); with **WAHA** → a **file attachment** (`engine.sendFile`, base64).
+Attachment PDFs are always sent via `engine.sendFile`. For the link path, the buyer opens the link → a public page asks for their WhatsApp
 number → `POST /api/download/<token>` normalizes it, **exact-matches** the order's registered number, and on
 success **streams the e-book PDF** from the private `EBOOK_FILES_DIR`. Link is **permanent + unlimited
 re-downloads** while the order is `PAID`.

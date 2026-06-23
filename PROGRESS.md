@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.19.1 |
+| PRD version in sync with | 0.19.2 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -215,6 +215,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **E-book delivery mode now engine-aware (PRD 0.19.2).** Owner: e-book as ATTACHMENT under
+  WAHA, as LINK under Fonnte. `delivery.ts` `attemptDelivery` branches the e-book item on `engine.name`:
+  Fonnte → `engine.sendText` (download link, D16); WAHA → `engine.sendFile` (base64 attachment, restored the
+  original e-book caption + `product.mimeType`). Attachments unchanged (always files). Download token + link
+  message kept (Fonnte path / engine-switch). No schema/env. 247 tests + tsc + build green.
 - 2026-06-23 — **Deterministic WhatsApp order on PAID (PRD 0.19.1).** `after_purchase` was sent in parallel
   with delivery → messages interleaved. Now the Midtrans webhook keeps the `attemptDelivery` promise and
   chains the `after_purchase` send (`deliveryDone.then(...)`); with `attemptDelivery` already iterating items

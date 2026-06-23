@@ -165,6 +165,23 @@ function ParticipantModal({ p, onClose, onDone }: { p: Participant; onClose: () 
   const primaryBtn: React.CSSProperties = { padding: '7px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' };
   const ghostBtn: React.CSSProperties = { padding: '7px 14px', background: '#fff', color: '#374151', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.82rem', cursor: 'pointer' };
   const videoLink = (kind: 'initial' | 'final') => `/api/admin/participants/${p.id}/proof/${kind}`;
+  // Inline streaming player for a proof video (same-origin → the admin session cookie is sent
+  // automatically, so the auth-gated endpoint streams it). Falls back to an open/download link.
+  const proofVideo = (kind: 'initial' | 'final') => (
+    <div style={{ marginTop: 2 }}>
+      <video
+        key={videoLink(kind)}
+        controls
+        preload="metadata"
+        playsInline
+        src={videoLink(kind)}
+        style={{ width: '100%', maxHeight: 320, borderRadius: 8, background: '#000', display: 'block' }}
+      />
+      <a href={videoLink(kind)} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', color: '#64748b', display: 'inline-block', marginTop: 4 }}>
+        Buka di tab baru / unduh
+      </a>
+    </div>
+  );
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', zIndex: 50, overflowY: 'auto' }}>
@@ -178,7 +195,7 @@ function ParticipantModal({ p, onClose, onDone }: { p: Participant; onClose: () 
         {/* Initial proof */}
         <div style={sectionTitle}>Bukti Awal</div>
         {p.hasInitialVideo
-          ? <a href={videoLink('initial')} target="_blank" rel="noreferrer" style={{ fontSize: '0.82rem', color: '#2563eb' }}>▶ Lihat video bukti awal</a>
+          ? proofVideo('initial')
           : <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Belum ada video.</span>}
         {p.status === 'PENDING_INITIAL_REVIEW' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
@@ -192,7 +209,7 @@ function ParticipantModal({ p, onClose, onDone }: { p: Participant; onClose: () 
         {/* Final proof */}
         <div style={sectionTitle}>Bukti Akhir</div>
         {p.hasFinalVideo
-          ? <a href={videoLink('final')} target="_blank" rel="noreferrer" style={{ fontSize: '0.82rem', color: '#2563eb' }}>▶ Lihat video bukti akhir</a>
+          ? proofVideo('final')
           : <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Belum ada video.</span>}
         {p.status === 'PENDING_FINAL_REVIEW' && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>

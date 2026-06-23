@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.18.0 |
+| PRD version in sync with | 0.18.1 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -214,6 +214,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Inline proof-video player in User/Active (PRD 0.18.1, UX).** The "Kelola" modal's Bukti
+  Awal/Akhir now embed a `<video controls>` streaming player (`ParticipantList.tsx` `proofVideo()`) instead
+  of a download link. Added **HTTP Range support** (206 / `Accept-Ranges`) to the proof endpoint
+  `/api/admin/participants/[id]/proof/[kind]` so playback + seeking work everywhere (Safari/iOS need it);
+  kept a small open/download fallback link. UI/route only — no schema/env. 231 tests + tsc + build green.
 - 2026-06-23 — **Conversion postback to ad publisher (PRD 0.18.0 §26, slice D17) — BUILT.** Owner wanted a
   S2S conversion callback to a single ad publisher on PAID. Decisions: GET pixel; **trxid = existing
   `Order.trackingId`** (reuse ref/utm/fbclid — no new field, no landing-page/checkout change); `{trxid}`

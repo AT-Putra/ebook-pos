@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.18.0 |
+| Version | 0.18.1 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,12 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.18.1** (2026-06-23) — **Inline proof-video player in User/Active (UX).** In the participant "Kelola"
+  modal, **Bukti Awal / Bukti Akhir** now show an **embedded `<video controls>` player** (streaming) instead
+  of a plain download link, so the operator can review the proof in place. The auth-gated proof endpoint
+  `GET /api/admin/participants/[id]/proof/[kind]` now serves **HTTP Range requests** (206 partial content,
+  `Accept-Ranges`) so playback + seeking work in every browser (Safari/iOS require it); a small "buka di tab
+  baru / unduh" link is kept as a fallback. UI/route only — no schema/env/migration. §21.
 - **0.18.0** (2026-06-23) — **S2S conversion postback to ad publisher (slice D17) — BUILT.** On the `PAID`
   transition the app fires a **server-to-server GET "pixel"** to a single configurable ad-publisher URL,
   passing back the click id so the publisher can attribute the sale. **trxid = the existing

@@ -214,6 +214,14 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Reset-test-data script (ops).** Added `scripts/reset-test-data.mjs` (+ `npm run
+  reset:test-data`) to wipe production test data: `TRUNCATE` the transactional tables (Customer, Order,
+  PaymentEvent, Delivery, DeliveryItem, ChallengeParticipant, ChallengeReminderLog, ChallengeSubmission,
+  WaMessageLog) `RESTART IDENTITY CASCADE` + delete proof videos in `CHALLENGE_MEDIA_DIR`. Keeps all config
+  (products/programs, challenge config, admin accounts, all Pengaturan) and the e-book PDFs. Safety: refuses
+  unless `CONFIRM_RESET=YES`; prints before/after counts. Run via
+  `docker compose exec -e CONFIRM_RESET=YES app node scripts/reset-test-data.mjs` (after a `pg_dump` backup).
+  Syntax + refusal-path verified; no schema/env change.
 - 2026-06-23 — **Inline proof-video player in User/Active (PRD 0.18.1, UX).** The "Kelola" modal's Bukti
   Awal/Akhir now embed a `<video controls>` streaming player (`ParticipantList.tsx` `proofVideo()`) instead
   of a download link. Added **HTTP Range support** (206 / `Accept-Ranges`) to the proof endpoint

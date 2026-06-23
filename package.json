@@ -11,6 +11,7 @@
     "postinstall": "prisma generate",
     "admin:create": "node scripts/create-admin.mjs",
     "wa-logs:backfill": "node scripts/backfill-wa-logs.mjs",
+    "reset:test-data": "node scripts/reset-test-data.mjs",
     "check": "bash scripts/pre-push-check.sh"
   },
   "dependencies": {

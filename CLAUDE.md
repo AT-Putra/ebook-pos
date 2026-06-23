@@ -36,6 +36,10 @@ done, idempotent, and recoverable.
 - DB migrate (dev): `npx prisma migrate dev`
 - DB migrate (deploy): `node_modules/.bin/prisma migrate deploy`
 - Seed: `node prisma/seed.mjs` (`prisma db seed` removed in Prisma 7)
+- Reset test data (DESTRUCTIVE; keeps config/products/admins/settings): `scripts/reset-test-data.mjs` —
+  truncates the transactional tables (Customer/Order/PaymentEvent/Delivery/DeliveryItem/Challenge­Participant/
+  ChallengeReminderLog/ChallengeSubmission/WaMessageLog) + deletes proof videos in `CHALLENGE_MEDIA_DIR`.
+  Refuses unless `CONFIRM_RESET=YES`. Run: `docker compose exec -e CONFIRM_RESET=YES app node scripts/reset-test-data.mjs` (back up with `pg_dump` first).
 
 ## Project layout (see PRD §10)
 - `src/app/[slug]/page.tsx` — checkout page; `src/app/api/checkout/route.ts` — create order + Snap

@@ -3,8 +3,23 @@ import {
   isFonnteVideo,
   fonnteInboundMessageId,
   parseFonnteInbound,
+  parseFonnteBody,
   verifyFonnteWebhookToken,
 } from '@/lib/fonnte';
+
+describe('parseFonnteBody (webhook body parsing, §24.4)', () => {
+  it('parses a JSON body (by content-type), coercing values to strings', () => {
+    const out = parseFonnteBody('application/json', JSON.stringify({ sender: '628123', message: 'hi', extension: 'mp4', id: 99 }));
+    expect(out).toEqual({ sender: '628123', message: 'hi', extension: 'mp4', id: '99' });
+  });
+  it('detects JSON even without a content-type (leading brace)', () => {
+    expect(parseFonnteBody('', '{"sender":"628","url":"https://x/y.mp4"}')).toEqual({ sender: '628', url: 'https://x/y.mp4' });
+  });
+  it('parses an x-www-form-urlencoded body', () => {
+    const out = parseFonnteBody('application/x-www-form-urlencoded', 'sender=628123&message=hello+world');
+    expect(out).toEqual({ sender: '628123', message: 'hello world' });
+  });
+});
 
 describe('parseFonnteSendResponse (Fonnte /send response, §24.3)', () => {
   it('returns the first id from a success response', () => {

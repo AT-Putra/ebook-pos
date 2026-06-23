@@ -90,7 +90,24 @@ export type FonnteInbound = {
   providedId: string | null;
 };
 
-/** Pure: extracts the fields we care about from Fonnte's inbound form payload. */
+/** Pure: parses a Fonnte webhook body into a flat string map. Fonnte may POST **JSON** (most common)
+ *  or `application/x-www-form-urlencoded`; multipart is handled by the route via `req.formData()`. */
+export function parseFonnteBody(contentType: string | null, rawText: string): Record<string, string> {
+  const ct = (contentType || '').toLowerCase();
+  const trimmed = rawText.trim();
+  if (ct.includes('application/json') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const obj = JSON.parse(rawText) as Record<string, unknown> | null;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(obj ?? {})) out[k] = v == null ? '' : String(v);
+    return out;
+  }
+  const params = new URLSearchParams(rawText);
+  const out: Record<string, string> = {};
+  for (const [k, v] of params.entries()) out[k] = v;
+  return out;
+}
+
+/** Pure: extracts the fields we care about from Fonnte's inbound payload (flat string map). */
 export function parseFonnteInbound(fields: Record<string, string>): FonnteInbound {
   const get = (k: string): string | null => {
     const v = fields[k];

@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.18.1 |
+| Version | 0.18.2 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,12 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.18.2** (2026-06-23) — **Fix: Fonnte inbound webhook now accepts JSON bodies.** Live debugging showed
+  `/api/webhooks/fonnte` returning `400 invalid form body` — Fonnte POSTs the inbound message as **JSON**
+  (or urlencoded), not multipart, so `req.formData()` threw and every proof video was dropped. The route now
+  parses by content-type: multipart → `formData()`, otherwise JSON/urlencoded via a new pure
+  `parseFonnteBody(contentType, rawText)` (unit-tested). It also logs `ct=… keys=[…]` so the exact Fonnte
+  field names are visible. Route/lib only — no schema/env. §24.4.
 - **0.18.1** (2026-06-23) — **Inline proof-video player in User/Active (UX).** In the participant "Kelola"
   modal, **Bukti Awal / Bukti Akhir** now show an **embedded `<video controls>` player** (streaming) instead
   of a plain download link, so the operator can review the proof in place. The auth-gated proof endpoint

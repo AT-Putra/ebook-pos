@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   parseFonnteInbound,
+  parseFonnteBody,
   isFonnteVideo,
   fonnteInboundMessageId,
   verifyFonnteWebhookToken,
@@ -25,19 +26,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token.' }, { status: 401 });
   }
 
-  // 2. Parse the form payload (Fonnte posts form-encoded / multipart fields).
+  // 2. Parse the body — Fonnte may POST JSON (most common), urlencoded, or multipart.
+  const contentType = req.headers.get('content-type') || '';
   let fields: Record<string, string>;
   try {
-    const form = await req.formData();
-    fields = {};
-    for (const [k, v] of form.entries()) if (typeof v === 'string') fields[k] = v;
-  } catch {
-    console.warn(`${TAG} 400 invalid form body`);
+    if (contentType.toLowerCase().includes('multipart/form-data')) {
+      const form = await req.formData();
+      fields = {};
+      for (const [k, v] of form.entries()) if (typeof v === 'string') fields[k] = v;
+    } else {
+      fields = parseFonnteBody(contentType, await req.text());
+    }
+  } catch (err) {
+    console.warn(`${TAG} 400 unparseable body (ct=${contentType}):`, err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'Invalid body.' }, { status: 400 });
   }
 
   const inbound = parseFonnteInbound(fields);
-  console.log(`${TAG} received sender=%s hasUrl=%s ext=%s`, inbound.sender, !!inbound.mediaUrl, inbound.extension);
+  // Log the raw shape so the exact Fonnte field names are visible while debugging.
+  console.log(`${TAG} received ct=%s keys=[%s] sender=%s hasUrl=%s ext=%s`,
+    contentType, Object.keys(fields).join(','), inbound.sender, !!inbound.mediaUrl, inbound.extension);
 
   const ignore = (reason: string) => {
     console.log(`${TAG} ignored: ${reason}`);

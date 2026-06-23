@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 0.18.2 |
+| Version | 0.18.3 |
 | Status | Core flow + dashboard (D1–D3.1) + CORS (D8) + rate limit (D9) + Program (D10) + Card UI (§20.12) + Challenge (D11), deployed; **Challenge WA automation (D12) + external landing pages (D13) + WA Logs (D5) + Leads list (D4) + User mgmt (D6) + email fallback (D14) built (green) — pending VPS deploy + migration** |
 | Owner | Product owner (you) |
 | Last updated | 2026-06-22 |
@@ -14,6 +14,13 @@
 | Target implementer | AI coding agent |
 
 ### Changelog
+- **0.18.3** (2026-06-23) — **Thank-you page shows CS contact for help.** The post-payment `/thank-you`
+  page now displays a "Butuh bantuan?" box with the operator's CS contact, taken from the challenge config's
+  **Kontak (info lebih lanjut)** field (`Challenge.contactInfo`). `page.tsx` is now a server component that
+  resolves the contact from the buyer's order (via Midtrans' `order_id`), falling back to any configured
+  challenge contact; if the text contains an Indonesian mobile number, a **"Hubungi CS via WhatsApp"**
+  (`wa.me`) button is shown (pure `waLinkFromText` in `lib/phone.ts`, unit-tested). UI/lib only — no
+  schema/env. §21.
 - **0.18.2** (2026-06-23) — **Fix: Fonnte inbound webhook now accepts JSON bodies.** Live debugging showed
   `/api/webhooks/fonnte` returning `400 invalid form body` — Fonnte POSTs the inbound message as **JSON**
   (or urlencoded), not multipart, so `req.formData()` threw and every proof video was dropped. The route now

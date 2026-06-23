@@ -51,3 +51,18 @@ export function normalizeIndonesianPhone(raw: string): string {
 export function toChatId(normalizedPhone: string): string {
   return `${normalizedPhone}@c.us`;
 }
+
+/** Best-effort: pull an Indonesian WhatsApp number out of free-text contact info and return a
+ *  `https://wa.me/<62…>` link, or null if no valid mobile number is found. Pure → testable. */
+export function waLinkFromText(text: string): string | null {
+  const candidates = text.match(/\+?\d[\d\s().-]{7,}\d/g);
+  if (!candidates) return null;
+  for (const c of candidates) {
+    try {
+      return `https://wa.me/${normalizeIndonesianPhone(c)}`;
+    } catch {
+      // not a valid Indonesian mobile — try the next candidate
+    }
+  }
+  return null;
+}

@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| PRD version in sync with | 0.18.2 |
+| PRD version in sync with | 0.18.3 |
 | Last updated | 2026-06-22 |
 | Overall status | …D10 Program + Card UI + D11 Challenge deployed?; **D11 Challenge + D12 WA automation + D13 external landing pages + D5 WA Logs + D4 Leads list + D6 User mgmt + D14 email fallback + D15 switchable WhatsApp engine (WAHA↔Fonnte) built (green) — pending VPS deploy** |
 | Repo working state | green (build passes, tsc clean) |
@@ -214,6 +214,11 @@
 - [x] Checkout failure policy → **mark FAILED** (not delete). Audit trail preserved. Resolved 2026-06-04.
 
 ## Session log
+- 2026-06-23 — **Thank-you page CS contact (PRD 0.18.3).** `/thank-you` now shows a "Butuh bantuan?" box
+  with the CS contact from `Challenge.contactInfo` ("Kontak (info lebih lanjut)"). `page.tsx` → server
+  component resolving the contact via the order's `order_id` (fallback: any configured challenge contact);
+  `content.tsx` renders it + a `wa.me` button when a mobile number is detected (pure `waLinkFromText` in
+  `lib/phone.ts`, +4 tests). UI/lib only — no schema/env. 238 tests + tsc + build green.
 - 2026-06-23 — **Fix: Fonnte inbound webhook JSON bodies (PRD 0.18.2).** Prod log showed
   `[fonnte-inbox] 400 invalid form body` on every sent video — Fonnte POSTs JSON (not multipart), so
   `req.formData()` threw and proof videos were dropped. `/api/webhooks/fonnte` now branches on content-type

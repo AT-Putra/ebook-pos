@@ -1,4 +1,19 @@
-import { normalizeIndonesianPhone, toChatId, PhoneNormalizationError } from '@/lib/phone';
+import { normalizeIndonesianPhone, toChatId, PhoneNormalizationError, waLinkFromText } from '@/lib/phone';
+
+describe('waLinkFromText (CS contact on thank-you, D16/§21)', () => {
+  it('extracts a 08… number from free text', () => {
+    expect(waLinkFromText('Hubungi admin di 0812-3456-789')).toBe('https://wa.me/628123456789');
+  });
+  it('extracts a +62 number', () => {
+    expect(waLinkFromText('WA: +62 858 1111 2222')).toBe('https://wa.me/6285811112222');
+  });
+  it('returns null when there is no phone number', () => {
+    expect(waLinkFromText('Email kami di support@toko.com')).toBeNull();
+  });
+  it('returns null for an empty string', () => {
+    expect(waLinkFromText('')).toBeNull();
+  });
+});
 
 describe('normalizeIndonesianPhone', () => {
   it.each([

@@ -2,7 +2,13 @@
 
 import { useSearchParams } from 'next/navigation';
 
-export function ThankYouContent() {
+export function ThankYouContent({
+  contactInfo,
+  waLink,
+}: {
+  contactInfo: string | null;
+  waLink: string | null;
+}) {
   const params = useSearchParams();
   const orderCode = params.get('order_id') ?? params.get('orderCode');
   const status = params.get('transaction_status');
@@ -32,6 +38,25 @@ export function ThankYouContent() {
         <p style={{ marginTop: 16 }}>
           Pembayaran sedang diproses. Kamu akan menerima e-book setelah pembayaran dikonfirmasi.
         </p>
+      )}
+
+      {contactInfo && (
+        <div style={{ marginTop: 24, padding: '14px 16px', background: '#f8fafc', border: '1px solid #e7ebf0', borderRadius: 10 }}>
+          <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>Butuh bantuan?</p>
+          <p style={{ margin: '6px 0 0', fontSize: '0.88rem', color: '#475569', whiteSpace: 'pre-line' }}>
+            Hubungi CS kami: {contactInfo}
+          </p>
+          {waLink && (
+            <a
+              href={waLink}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: 'inline-block', marginTop: 10, padding: '8px 16px', background: '#16a34a', color: '#fff', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}
+            >
+              💬 Hubungi CS via WhatsApp
+            </a>
+          )}
+        </div>
       )}
     </>
   );
